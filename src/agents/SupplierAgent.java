@@ -1,4 +1,6 @@
 package agents;
 
-public class SupplierAgent {
+import jade.core.Agent;
+
+public class SupplierAgent extends Agent {
 }

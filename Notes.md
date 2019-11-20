@@ -1,4 +1,4 @@
-# Multi-Agent Systems notes using JADE with 
+# Multi-Agent Systems notes using JADE with Java
 The JADE jar can be downloaded from:
 
 https://jade.tilab.com/download/jade/
@@ -11,7 +11,9 @@ Recommended book:
 
 Bellifemine, Fabio Luigi, et al. Developing Multi-Agent Systems with JADE. ProQuest, 2007.
 
-**Jade Set Up**
+## Basics
+
+### Jade Set Up
 ```Java
 public static void main(String[] args) {
     // Setup the JADE environment
@@ -21,9 +23,38 @@ public static void main(String[] args) {
 }
 ```
 
+### setup()
+
+The setup method is called once at the time of creation of the agent.
+
+```Java
+@override
+protected void setup() {}
+```
+
+### takeDown()
+
+The takeDown method is called once right before an agent is deleted. If you need to do any house keeping before destroying an agent - do it here.
+
+```Java
+@override
+protected void takeDown() {}
+```
+
+### doDelete()
+
+The doDelete mathod kills an agent. This method automatically calls the takeDown method.
+
+```Java
+myAgent.doDelete();
+```
+
+
+
 ## Types of Agents
 
-**Remote Management Agent (RMA)** 
+### Remote Management Agent (RMA)
+
 It is created like anyother agents and is used to register any new agents to it. That way we can keep track of "alive" agents in the system.
 
 ```Java
@@ -37,124 +68,134 @@ catch (Exception e) {
 }
 ```
 
-### H3 Heather
+### The Directory Facilitator (DF)
 
-### Dependencies
+It is used to register and deregister agents with the yellow pages service. It is created by default and we
 
-The Tool uses a variety of artifacts to perform Unit and Integration testing, adapted to its legacy dependencies.
+#### Register ####
 
-* **junit**
-```XML
-<dependency>
-    <groupId>junit</groupId>
-    <artifactId>junit</artifactId>
-    <version>VERSION</version>
-</dependency>
+This is usually done in the **setup()**. Often, is recommended to register your agent with the DF agent.
+
+```Java
+// Register with the DF agent for the yellow pages
+DFAgentDescription dfd = new DFAgentDescription();
+dfd.setName(getAID());
+
+ServiceDescription sd = new ServiceDescription();
+sd.setType("Type");
+sd.setName(getLocalName() + "-agent-type");
+
+dfd.addServices(sd);
+
+try {
+    DFService.register(this, dfd);
+}
+catch (FIPAException e) {
+    e.printStackTrace();
+}
 ```
 
-* **mockito**
-```XML
-<dependency>
-    <groupId>org.mockito</groupId>
-    <artifactId>mockito-core</artifactId>
-    <version>VERSION</version>
-</dependency
+#### Deregister
+
+This is usually done in the **takeDown()**. It is important to not forget to deregister.
+
+```Java
+// Deregister the agent! its important to do!
+try {
+    DFService.deregister(this);
+}
+catch (FIPAException e) {
+    e.printStackTrace();
+}
 ```
 
-```xml
-<dependency>
-	<groupId>org.hsqldb</groupId>
-	<artifactId>hsqldb</artifactId>
-	<version>VERSION</version>
-</dependency>
+## Behaviours
 
+Behaviours are like methods in OOP but they run concurrently. When you need to define a functionality, do it in a behaviour. Defined in setup you can create your own behaviours. There are few pre-defined ones.
+
+Behaviours have **action()** and **done()** methods. During action, all other behvaiours are being hold on wait in a queue. After all are done, it loops back to the first. At the end of action, done is being executed. When done returns true, it removes the behaviours from the queue.
+
+### TickerBehaviour
+
+This behaviour is used to exicute its body on a timer. The example uses **onTick()**.
+```Java
+// Create a new TickerBehaviour
+addBehaviour(new TickerBehaviour(this, 1000) {
+    // Executed every 1000ms
+    
+    @Override
+    protected void onTick() {
+        if ( counter > 0 ) {
+            System.out.println("Ticking: " + counter);
+            counter--;
+        } else {
+            System.out.println("Bye!");
+            myAgent.doDelete();
+        }
+    }
+});
 ```
 
+### Switching Behaviours
 
-## Controller Layer
+Since the action runs until the done returns true, we can put on wait other behaviours. Be careful to not have long computation or infinate loops inside action.
 
-```java
-import javax.servlet.http.HttpServletRequest;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders..; // Delete, Get, Post
+```Java
+// Called when the agent is being created
+@Override
+protected void setup() {
+    System.out.println("Hello world! Agent " + getAID().getLocalName() + " is ready!");
 
-public class RestControllerTest extends BaseTestClass {
+    registerWithDFAgent();
 
-    /**
-     * POST Request Test
-     * ArgumentMatchers.anyString()
-     * ArgumentMatchers.anyList()
-     *
-     * @throws Exception the exception
-     */
-    @Test
-    public void testPostRequest() throws Exception {
-        when(service.serviceMethod(ArgumentMatchers.anyType()))
-                .thenReturn(RESPONSE_OBJECT);
-        MvcResult result = this.mockMvc.perform(post("/URL")
-                .content("{ REQUEST JSON CONTENT }")
-                .with((MockHttpServletRequest request) -> {
-                    request.addHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
-                    request.addHeader("authorization", "Basic " 
-                        + Base64Utils.encodeToString("user:password".getBytes()));
-                    return request;
-                }))
-                .andExpect(status().isOk())
-                .andReturn();
+    addBehaviour(new BehaviourOne(this));
+    addBehaviour(new BehaviourTwo(this));
 
-        String content = result.getResponse().getContentAsString();
-        assertEquals(EXPECTED, content);
+}
+
+// Define my own behaviour
+public class BehaviourOne extends Behaviour {
+
+    private int timesCalled = 0;
+
+    BehaviourOne(Agent agent){
+        myAgent = agent;
+    }
+
+
+    @Override
+    public void action() {
+        System.out.println("Called from: " + myAgent.getLocalName());
+        timesCalled++;
+    }
+
+    @Override
+    public boolean done() {
+        return timesCalled >= 10;
+    }
+}
+
+// Define my own behaviour
+public class BehaviourTwo extends Behaviour {
+
+    private int timesCalled = 0;
+
+    BehaviourTwo(Agent agent){
+        myAgent = agent;
+    }
+
+
+    @Override
+    public void action() {
+        System.out.println("Called from: " + myAgent.getLocalName());
+        timesCalled++;
+    }
+
+    @Override
+    public boolean done() {
+        return timesCalled >= 10;
     }
 }
 ```
 
-## DAO Layer
-
-HSQLDB
-
-https://stackoverflow.com/questions/11540758/hibernate-connection-with-hsqldb
-
-```XML
-<bean id="dataSource" class="org.hsqldb.jdbc.JDBCDataSource">
-        <property name="database" value="jdbc:hsqldb:mem:dbname;sql.syntax_mss=true" />
-        <property name="user" value="sa"/>
-        <property name="password" value=""/>
-</bean>
-```
-
->NOTE: TRY TO TRANSLATE TO ANNOTATIONS
-
-
-### Rest Controller Multiple URL Mappings
-
-Prototype, Singleton viable
-
-```java
-public class RestController {}
-```
-
-### DAO Layer implementation
-
-We can authenticate the user and pass in the variable from Controller (Request) > Service > DAO
-
-```java
-public interface ClassDAO {
-    @Transactional
-	public void updateMethod(final String passedVariable);
-}
-```
-
-### Hibernate: mapping results to custom Pojo or entity
-```java
-return session.createSQLQuery(query)
-	.addScalar("column_name", StringType.INSTANCE)
-	.setParameterList("queryParameter", parameter)
-	.setResultTransformer(Transformers.ALIAS_TO_ENTITY_MAP)
-	.list();
-```
-
-## Useful
-
-* Hibernate Forumulas
-* Spring Security
-* Authentication Interceptor (Sprign)
-* Authentication Service
+### 

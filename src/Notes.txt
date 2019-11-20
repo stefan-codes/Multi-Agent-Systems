@@ -1,7 +1,0 @@
-Behaviours are concurrent and agents can have multiple ones.
-
-Remote Management Agent (RMA) keeps track of existing agents.
-
-The Directory Facilitator (DF) is used to register and deregister agents with the yellow pages.
-
-Register agents with the yellow pages on creation and deregister on deleting.
