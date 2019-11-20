@@ -1,4 +1,12 @@
-# Java Testing
+# H1 Multi-Agent Systems notes using JADE with Java
+
+## H2 Types of Agents
+
+* **Remote Management Agent**
+
+* *Remote Management Agent*
+
+### H3 Heather
 
 ### Dependencies
 
