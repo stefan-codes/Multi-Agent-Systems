@@ -1,4 +1,12 @@
-# H1 Multi-Agent Systems notes using JADE with Java
+# Multi-Agent Systems notes using JADE with Java
+The JADE jar can be downloaded from:
+https://jade.tilab.com/download/jade/
+
+Documentation on JADE:
+https://jade.tilab.com/doc/api/index.html
+
+Recommended book:
+Bellifemine, Fabio Luigi, et al. Developing Multi-Agent Systems with JADE. ProQuest, 2007.
 
 ## H2 Types of Agents
 
