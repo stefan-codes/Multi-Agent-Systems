@@ -10,7 +10,7 @@ import agents.*;
 public class Main {
 
     public static void main(String[] args) {
-        //Setup the JADE environment
+        // Setup the JADE environment
         Profile myProfile = new ProfileImpl();
         Runtime myRuntime = Runtime.instance();
         ContainerController myContainer = myRuntime.createMainContainer(myProfile);
@@ -24,7 +24,7 @@ public class Main {
 
 
         try{
-            //Start the agent controller, which is itself an agent (rma)
+            // Start the agent controller, which is itself an agent (rma)
             AgentController rma = myContainer.createNewAgent("rma", "jade.tools.rma.rma", null);
             rma.start();
 

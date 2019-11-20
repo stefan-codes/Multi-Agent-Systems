@@ -1,18 +1,41 @@
-# Multi-Agent Systems notes using JADE with Java
+# Multi-Agent Systems notes using JADE with 
 The JADE jar can be downloaded from:
+
 https://jade.tilab.com/download/jade/
 
 Documentation on JADE:
+
 https://jade.tilab.com/doc/api/index.html
 
 Recommended book:
+
 Bellifemine, Fabio Luigi, et al. Developing Multi-Agent Systems with JADE. ProQuest, 2007.
 
-## H2 Types of Agents
+**Jade Set Up**
+```Java
+public static void main(String[] args) {
+    // Setup the JADE environment
+    Profile myProfile = new ProfileImpl();
+    Runtime myRuntime = Runtime.instance();
+    ContainerController myContainer = myRuntime.createMainContainer(myProfile);
+}
+```
 
-* **Remote Management Agent**
+## Types of Agents
 
-* *Remote Management Agent*
+**Remote Management Agent (RMA)** 
+It is created like anyother agents and is used to register any new agents to it. That way we can keep track of "alive" agents in the system.
+
+```Java
+try {
+    // Start the agent controller, which is itself an agent (rma)
+    AgentController rma = myContainer.createNewAgent("rma", "jade.tools.rma.rma", null);
+    rma.start();
+} 
+catch (Exception e) {
+    System.out.println("Exception starting agent: " + e.toString());
+}
+```
 
 ### H3 Heather
 
