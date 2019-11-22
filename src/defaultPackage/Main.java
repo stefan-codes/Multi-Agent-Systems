@@ -18,6 +18,7 @@ public class Main {
         // Variables for the simulation
         Integer[] daysToRun = {100};
         int numberOfClients = 3;
+        int numberOfSuppliers = 2;
 
         try{
             // Start the agent controller, which is itself an agent (rma)
@@ -35,6 +36,10 @@ public class Main {
             manufacturer.start();
 
             // Start the Supplier Agents
+            for (int i = 0; i < numberOfSuppliers; i++) {
+                AgentController supplier = myContainer.createNewAgent("Supplier"+i, SupplierAgent.class.getCanonicalName(), null);
+                supplier.start();
+            }
 
             // Start the Simulation Agent
             AgentController simulation = myContainer.createNewAgent("Simulation", SimulationAgent.class.getCanonicalName(), daysToRun);

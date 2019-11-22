@@ -113,7 +113,20 @@ catch (FIPAException e) {
 
 Behaviours are like methods in OOP but they run concurrently. When you need to define a functionality, do it in a behaviour. Defined in setup you can create your own behaviours. There are few pre-defined ones.
 
-Behaviours have **action()** and **done()** methods. During action, all other behvaiours are being hold on wait in a queue. After all are done, it loops back to the first. At the end of action, done is being executed. When done returns true, it removes the behaviours from the queue.
+**action()**
+
+During action, all other behvaiours are being hold on wait in a queue. After all are done, it loops back to the first.
+
+**done()**
+
+At the end of action, done is being executed. When done returns true, it removes the behaviours from the queue.
+
+**onEnd()**
+
+When done returns true, and the behaviour is being removed, onEnd is ran and it returns an int which is the status code (0 for normal).
+
+
+When defining Behvaiours as classes, it is a common practice in JADE to make them inner classes so they can access private features of the Agent.
 
 ### TickerBehaviour
 
@@ -198,4 +211,84 @@ public class BehaviourTwo extends Behaviour {
 }
 ```
 
-### 
+### OneShotBehaviour
+
+This type of behaviour has its done() method to always return true. That way it is ran only once.
+
+```Java
+public class OSB extends OneShotBehaviour {
+    @Override
+    public void action(){
+        System.out.println("Hello and Bye!");
+    }
+}
+```
+
+### SequentialBehaviour
+
+Since we have to wait till a behaviour's action is complete, until we move to the next action, if we can a complex long logic we will block the use of other behaviours. To avoid that we want to break a process into smaller chuncks. That can be done by creating a class for each small chunck and add it as a sub-behaviour.
+
+```Java
+public class SequentialAgent extends Agent{
+    @Override
+    protected void setup(){
+        System.out.println("Hello!");
+
+        SequentialBehaviour s1 = new SequentialBehaviour(this);
+        s1.addSubBehaviour(new OSB());
+        addBehaviour(s1);
+    }
+}
+
+public class OSB extends OneShotBehaviour {
+    @Override
+    public void action(){
+        System.out.println("Hello and Bye!");
+    }
+}
+```
+
+Sometimes we want to **reuse behaviours** to avoid creating new objects and having the garbage collector dealing with the old ones. To do this we reset the state of our behaviour and modify onEnd to re-insert the behaviour back in the queue.
+
+```Java
+public class MyBehaviour extends Behaviour {
+
+    @Override
+    public int onEnd() {
+        // Use the reset to deal with its state
+        reset();
+        
+        // Dont forget to add it back in the queue
+        myAgent.addBehaviour(this);
+
+        return 0;
+    }
+
+    @Override
+    public void reset() {
+        // Update the variables that keep track of the state e.g.
+        finished = false;
+    }
+}
+```
+
+### CyclicBehaviour
+
+This behaviour runs forever. It has its done method modified to return false. It is final and subclasses cant change that.
+
+```Java
+public class MyBehaviour extends CyclicBehaviour {
+    @Override
+    public void action(){
+        // Do your logic
+    }
+}
+```
+
+### WakerBehaviour
+
+### ParallelBehaviour
+
+### FiniteStateMachineBehaviour
+
+## Communication between agents
