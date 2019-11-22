@@ -24,7 +24,7 @@
   <component name="PropertiesComponent">
     <property name="WebServerToolWindowFactoryState" value="false" />
     <property name="aspect.path.notification.shown" value="true" />
-    <property name="last_opened_file_path" value="C:/Jade/JADE-bin-4.5.0/jade/lib/jade.jar!/" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
     <property name="project.structure.last.edited" value="Libraries" />
     <property name="project.structure.proportion" value="0.0" />
     <property name="project.structure.side.proportion" value="0.2" />
@@ -76,7 +76,9 @@
       <workItem from="1574256516376" duration="13057000" />
       <workItem from="1574340755631" duration="5741000" />
       <workItem from="1574356127021" duration="846000" />
-      <workItem from="1574376948502" duration="2113000" />
+      <workItem from="1574376948502" duration="3273000" />
+      <workItem from="1574434130354" duration="4006000" />
+      <workItem from="1574454510737" duration="8318000" />
     </task>
     <servers />
   </component>

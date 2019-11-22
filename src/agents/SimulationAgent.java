@@ -3,6 +3,7 @@ package agents;
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.Behaviour;
+import jade.core.behaviours.OneShotBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
@@ -19,11 +20,15 @@ public class SimulationAgent extends Agent {
     private boolean waiting = false;
     private boolean doneForToday = false;
 
+    private ArrayList<AID> manufacturers = new ArrayList<>();
+    private ArrayList<AID> clients = new ArrayList<>();
+    private ArrayList<AID> suppliers = new ArrayList<>();
+
     @Override
     protected void setup() {
         System.out.println("Hello, " + getLocalName() + " is starting...");
 
-        registerWithDFAgent("simulation", "-simulation-agent");
+        addBehaviour(new RegisterWithDFAgent(this));
 
         // Process the arguments
         Object[] args = getArguments();
@@ -56,28 +61,8 @@ public class SimulationAgent extends Agent {
         }
     }
 
-    // Register with YellowPages
-    private void registerWithDFAgent(String type, String nameExtension){
-        // Register with the DF agent for the yellow pages
-        DFAgentDescription dfd = new DFAgentDescription();
-        dfd.setName(getAID());
-
-        ServiceDescription sd = new ServiceDescription();
-        sd.setType(type);
-        sd.setName(getLocalName() + nameExtension);
-
-        dfd.addServices(sd);
-
-        try {
-            DFService.register(this, dfd);
-        }
-        catch (FIPAException e) {
-            e.printStackTrace();
-        }
-    }
-
     // Synchronizing behaviour that ticks the days
-    public class SyncAgentsBehaviour extends Behaviour {
+    private class SyncAgentsBehaviour extends Behaviour {
 
         private ArrayList<AID> agentsInTheSimulation = new ArrayList<>();
 
@@ -103,8 +88,17 @@ public class SimulationAgent extends Agent {
                     block();
                 }
             } else {
-                updateTheListOfAgents();
-                sendMessage("new day");
+                addBehaviour(new UpdateAgentList(myAgent));
+
+                // Send "new day" message to all agents
+                ACLMessage message = new ACLMessage(ACLMessage.INFORM);
+                message.setContent("new day");
+                for(AID id : agentsInTheSimulation){
+                    message.addReceiver(id);
+                }
+                myAgent.send(message);
+
+                // Go to waiting stage
                 waiting = true;
             }
 
@@ -151,7 +145,45 @@ public class SimulationAgent extends Agent {
             return 0;
         }
 
-        private void updateTheListOfAgents(){
+    }
+
+    // Register the agent with the DF agent for Yellow Pages
+    private class RegisterWithDFAgent extends OneShotBehaviour {
+
+        RegisterWithDFAgent(Agent agent){
+            super(agent);
+        }
+
+        @Override
+        public void action() {
+            // Register with the DF agent for the yellow pages
+            DFAgentDescription dfd = new DFAgentDescription();
+            dfd.setName(getAID());
+
+            ServiceDescription sd = new ServiceDescription();
+            sd.setType("simulation");
+            sd.setName(getLocalName() + "-simulation-agent");
+
+            dfd.addServices(sd);
+
+            try {
+                DFService.register(myAgent, dfd);
+            }
+            catch (FIPAException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    // Update the list of agents in the simulation
+    private class UpdateAgentList extends OneShotBehaviour {
+
+        UpdateAgentList(Agent agent){
+            super(agent);
+        }
+
+        @Override
+        public void action() {
             // Create descriptions for each type of agent in the system
             DFAgentDescription clientAD = new DFAgentDescription();
             ServiceDescription clientSD = new ServiceDescription();
@@ -159,7 +191,7 @@ public class SimulationAgent extends Agent {
 
             DFAgentDescription manufacturerAD = new DFAgentDescription();
             ServiceDescription manufacturerSD = new ServiceDescription();
-            manufacturerSD.setType("client");
+            manufacturerSD.setType("manufacturer");
 
             DFAgentDescription supplierAD = new DFAgentDescription();
             ServiceDescription supplierSD = new ServiceDescription();
@@ -169,17 +201,17 @@ public class SimulationAgent extends Agent {
             try {
                 DFAgentDescription[] clientAgents = DFService.search(myAgent, clientAD);
                 for (DFAgentDescription client : clientAgents) {
-                    agentsInTheSimulation.add(client.getName());
+                    clients.add(client.getName());
                 }
 
                 DFAgentDescription[] manufacturerAgents = DFService.search(myAgent, manufacturerAD);
                 for (DFAgentDescription manufacturer : manufacturerAgents) {
-                    agentsInTheSimulation.add(manufacturer.getName());
+                    manufacturers.add(manufacturer.getName());
                 }
 
                 DFAgentDescription[] supplierAgents = DFService.search(myAgent, supplierAD);
                 for (DFAgentDescription supplier : supplierAgents) {
-                    agentsInTheSimulation.add(supplier.getName());
+                    suppliers.add(supplier.getName());
                 }
 
             }
@@ -187,17 +219,6 @@ public class SimulationAgent extends Agent {
                 e.printStackTrace();
             }
         }
-
-        private void sendMessage(String content){
-            ACLMessage message = new ACLMessage(ACLMessage.INFORM);
-            message.setContent(content);
-            for(AID id : agentsInTheSimulation){
-                message.addReceiver(id);
-            }
-            myAgent.send(message);
-        }
-
     }
-
 }
 

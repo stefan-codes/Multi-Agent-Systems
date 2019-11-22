@@ -1,22 +1,38 @@
 package agents;
 
+import jade.core.AID;
 import jade.core.Agent;
+import jade.core.behaviours.CyclicBehaviour;
+import jade.core.behaviours.OneShotBehaviour;
+import jade.core.behaviours.SequentialBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.domain.FIPAException;
+import jade.lang.acl.ACLMessage;
+import jade.lang.acl.MessageTemplate;
+
+import java.awt.event.TextEvent;
+import java.util.ArrayList;
 
 public class ClientAgent extends Agent {
+
+    private AID simulation;
+    private ArrayList<AID> manufacturers = new ArrayList<>();
 
     // Called when the agent is being created
     @Override
     protected void setup() {
         System.out.println("Hello world! Agent " + getAID().getLocalName() + " is ready!");
 
-        // Register for Yellow pages
-        registerWithDFAgent("client", "-client-agent");
+        // Register with DF
+        addBehaviour(new RegisterWithDFAgent(this));
 
+        // Update simulation AID
+        addBehaviour(new FindSimulationInstance(this));
 
+        // Add listener behaviour
+        addBehaviour(new WaitForNewDay(this));
     }
 
     // Called when the agent is being decommissioned
@@ -31,25 +47,139 @@ public class ClientAgent extends Agent {
         }
     }
 
-    // Register with YellowPages
-    private void registerWithDFAgent(String type, String nameExtension){
-        // Register with the DF agent for the yellow pages
-        DFAgentDescription dfd = new DFAgentDescription();
-        dfd.setName(getAID());
+    // A behaviour to way for a new day - MAIN behaviour
+    private class WaitForNewDay extends CyclicBehaviour {
 
-        ServiceDescription sd = new ServiceDescription();
-        sd.setType(type);
-        sd.setName(getLocalName() + nameExtension);
-
-        dfd.addServices(sd);
-
-        try {
-            DFService.register(this, dfd);
+        // Constructor with an agent
+        WaitForNewDay(Agent agent){
+            super(agent);
         }
-        catch (FIPAException e) {
-            e.printStackTrace();
+
+        @Override
+        public void action() {
+            // TODO: adjust to account for message from manufacturer for order done
+            MessageTemplate mt = MessageTemplate.or(MessageTemplate.MatchContent("new day"),
+                                                    MessageTemplate.MatchContent("finished"));
+            ACLMessage msg = myAgent.receive(mt);
+
+            if(msg != null) {
+                if(msg.getContent().equals("new day")) {
+                    // New Sequential behaviour for daily activities
+                    SequentialBehaviour dailyActivity = new SequentialBehaviour();
+
+                    // Add sub-behaviours (executed in the same order)
+                    dailyActivity.addSubBehaviour(new UpdateAgentList(myAgent));
+                    // TODO: add more behaviours like make order etc.
+                    dailyActivity.addSubBehaviour(new EndDay(myAgent));
+
+                    myAgent.addBehaviour(dailyActivity);
+                }
+                else {
+                    // message to end simulation
+                    myAgent.doDelete();
+                }
+            }
+            else{
+                block();
+            }
         }
     }
 
-    // Next method
+    // Register the agent with the DF agent for Yellow Pages
+    private class RegisterWithDFAgent extends OneShotBehaviour {
+
+        RegisterWithDFAgent(Agent agent){
+            super(agent);
+        }
+
+        @Override
+        public void action() {
+            // Register with the DF agent for the yellow pages
+            DFAgentDescription dfd = new DFAgentDescription();
+            dfd.setName(getAID());
+
+            ServiceDescription sd = new ServiceDescription();
+            sd.setType("client");
+            sd.setName(getLocalName() + "-client-agent");
+
+            dfd.addServices(sd);
+
+            try {
+                DFService.register(myAgent, dfd);
+            }
+            catch (FIPAException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    // Update the list of agents in the simulation
+    private class UpdateAgentList extends OneShotBehaviour {
+
+        UpdateAgentList(Agent agent){
+            super(agent);
+        }
+
+        @Override
+        public void action() {
+            // Create descriptions for each type of agent in the system
+            DFAgentDescription manufacturerAD = new DFAgentDescription();
+            ServiceDescription manufacturerSD = new ServiceDescription();
+            manufacturerSD.setType("manufacturer");
+
+            // Try to find all agents and add them to the list
+            try {
+                DFAgentDescription[] manufacturerAgents = DFService.search(myAgent, manufacturerAD);
+                for (DFAgentDescription manufacturer : manufacturerAgents) {
+                    manufacturers.add(manufacturer.getName());
+                }
+
+            }
+            catch (FIPAException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    // Set the simulation instance
+    private class FindSimulationInstance extends OneShotBehaviour {
+
+        FindSimulationInstance(Agent agent){
+            super(agent);
+        }
+
+        @Override
+        public void action() {
+            // Create descriptions for each type of agent in the system
+            DFAgentDescription simulationAD = new DFAgentDescription();
+            ServiceDescription simulationSD = new ServiceDescription();
+            simulationSD.setType("simulation");
+
+            try {
+                DFAgentDescription[] simulationAgents = DFService.search(myAgent, simulationAD);
+                simulation = simulationAgents[0].getName();
+            }
+            catch (FIPAException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    // Execute at the end of my daily activities
+    private class EndDay extends OneShotBehaviour {
+        // TODO: update later because its not end of the day?
+        EndDay(Agent a) {
+            super(a);
+        }
+
+        @Override
+        public void action() {
+
+            // Tell the simulation that I am done for today
+            ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+            msg.addReceiver(simulation);
+            msg.setContent("done");
+            myAgent.send(msg);
+        }
+    }
 }
