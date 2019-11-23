@@ -51,7 +51,6 @@ public class SupplierAgent extends Agent {
 
         @Override
         public void action() {
-            //TODO: System.out.println(myAgent.getAID().getLocalName() + " is listening...");
             MessageTemplate mt = MessageTemplate.or(MessageTemplate.MatchContent("new day"),
                     MessageTemplate.MatchContent("finished"));
             ACLMessage msg = myAgent.receive(mt);
@@ -61,13 +60,12 @@ public class SupplierAgent extends Agent {
                     simulation = msg.getSender();
                 }
                 if(msg.getContent().equals("new day")) {
-                    // TODO: System.out.println("New day registered - " + myAgent.getAID().getLocalName());
                     // New Sequential behaviour for daily activities
                     SequentialBehaviour dailyActivity = new SequentialBehaviour();
 
                     // Add sub-behaviours (executed in the same order)
                     dailyActivity.addSubBehaviour(new UpdateAgentList(myAgent));
-                    // TODO: add more behaviours like make order etc.
+                    // TODO: TASK - add more behaviours like make order etc.
                     dailyActivity.addSubBehaviour(new EndDay(myAgent));
 
                     myAgent.addBehaviour(dailyActivity);
@@ -124,6 +122,7 @@ public class SupplierAgent extends Agent {
             DFAgentDescription manufacturerAD = new DFAgentDescription();
             ServiceDescription manufacturerSD = new ServiceDescription();
             manufacturerSD.setType("manufacturer");
+            manufacturerAD.addServices(manufacturerSD);
 
             // Try to find all agents and add them to the list
             try {
@@ -141,7 +140,7 @@ public class SupplierAgent extends Agent {
 
     // Execute at the end of my daily activities
     private class EndDay extends OneShotBehaviour {
-        // TODO: update later because its not end of the day?
+        // TODO: Maybe? update later because its not end of the day?
         EndDay(Agent a) {
             super(a);
         }

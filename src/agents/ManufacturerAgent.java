@@ -66,7 +66,7 @@ public class ManufacturerAgent extends Agent {
 
                     // Add sub-behaviours (executed in the same order)
                     dailyActivity.addSubBehaviour(new UpdateAgentList(myAgent));
-                    // TODO: add more behaviours like make order etc.
+                    // TODO: TASK - add more behaviours like make order etc.
                     dailyActivity.addSubBehaviour(new EndDay(myAgent));
 
                     myAgent.addBehaviour(dailyActivity);
@@ -74,6 +74,7 @@ public class ManufacturerAgent extends Agent {
                 }
                 else {
                     // message to end simulation
+                    System.out.println("Decommissioning " + myAgent.getLocalName());
                     myAgent.doDelete();
                 }
             }
@@ -120,14 +121,18 @@ public class ManufacturerAgent extends Agent {
 
         @Override
         public void action() {
+            clients.clear();
+            suppliers.clear();
             // Create descriptions for each type of agent in the system
             DFAgentDescription clientAD = new DFAgentDescription();
             ServiceDescription clientSD = new ServiceDescription();
             clientSD.setType("client");
+            clientAD.addServices(clientSD);
 
             DFAgentDescription supplierAD = new DFAgentDescription();
             ServiceDescription supplierSD = new ServiceDescription();
             supplierSD.setType("supplier");
+            supplierAD.addServices(supplierSD);
 
             // Try to find all agents and add them to the list
             try {
@@ -150,7 +155,7 @@ public class ManufacturerAgent extends Agent {
 
     // Execute at the end of my daily activities
     private class EndDay extends OneShotBehaviour {
-        // TODO: update later because its not end of the day?
+        // TODO: Maybe? update later because its not end of the day?
         EndDay(Agent a) {
             super(a);
         }

@@ -51,7 +51,7 @@ public class ClientAgent extends Agent {
 
         @Override
         public void action() {
-            // TODO: adjust to account for message from manufacturer for order done
+            // TODO: TASK - adjust to account for message from manufacturer for order done
             MessageTemplate mt = MessageTemplate.or(MessageTemplate.MatchContent("new day"),
                                                     MessageTemplate.MatchContent("finished"));
             ACLMessage msg = myAgent.receive(mt);
@@ -66,7 +66,7 @@ public class ClientAgent extends Agent {
 
                     // Add sub-behaviours (executed in the same order)
                     dailyActivity.addSubBehaviour(new UpdateAgentList(myAgent));
-                    // TODO: add more behaviours like make order etc.
+                    // TODO: TASK - add more behaviours like make order etc.
                     dailyActivity.addSubBehaviour(new EndDay(myAgent));
 
                     myAgent.addBehaviour(dailyActivity);
@@ -123,6 +123,7 @@ public class ClientAgent extends Agent {
             DFAgentDescription manufacturerAD = new DFAgentDescription();
             ServiceDescription manufacturerSD = new ServiceDescription();
             manufacturerSD.setType("manufacturer");
+            manufacturerAD.addServices(manufacturerSD);
 
             // Try to find all agents and add them to the list
             try {
@@ -140,7 +141,7 @@ public class ClientAgent extends Agent {
 
     // Execute at the end of my daily activities
     private class EndDay extends OneShotBehaviour {
-        // TODO: update later because its not end of the day?
+        // TODO: TASK - update later because its not end of the day?
         EndDay(Agent a) {
             super(a);
         }
