@@ -12,7 +12,6 @@ import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 
-import java.awt.event.TextEvent;
 import java.util.ArrayList;
 
 public class ClientAgent extends Agent {
@@ -23,13 +22,8 @@ public class ClientAgent extends Agent {
     // Called when the agent is being created
     @Override
     protected void setup() {
-        System.out.println("Hello world! Agent " + getAID().getLocalName() + " is ready!");
-
         // Register with DF
         addBehaviour(new RegisterWithDFAgent(this));
-
-        // Update simulation AID
-        addBehaviour(new FindSimulationInstance(this));
 
         // Add listener behaviour
         addBehaviour(new WaitForNewDay(this));
@@ -63,6 +57,9 @@ public class ClientAgent extends Agent {
             ACLMessage msg = myAgent.receive(mt);
 
             if(msg != null) {
+                if(simulation == null) {
+                    simulation = msg.getSender();
+                }
                 if(msg.getContent().equals("new day")) {
                     // New Sequential behaviour for daily activities
                     SequentialBehaviour dailyActivity = new SequentialBehaviour();
@@ -134,30 +131,6 @@ public class ClientAgent extends Agent {
                     manufacturers.add(manufacturer.getName());
                 }
 
-            }
-            catch (FIPAException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    // Set the simulation instance
-    private class FindSimulationInstance extends OneShotBehaviour {
-
-        FindSimulationInstance(Agent agent){
-            super(agent);
-        }
-
-        @Override
-        public void action() {
-            // Create descriptions for each type of agent in the system
-            DFAgentDescription simulationAD = new DFAgentDescription();
-            ServiceDescription simulationSD = new ServiceDescription();
-            simulationSD.setType("simulation");
-
-            try {
-                DFAgentDescription[] simulationAgents = DFService.search(myAgent, simulationAD);
-                simulation = simulationAgents[0].getName();
             }
             catch (FIPAException e) {
                 e.printStackTrace();

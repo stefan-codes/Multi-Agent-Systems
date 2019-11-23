@@ -4,6 +4,7 @@ import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.core.behaviours.OneShotBehaviour;
+import jade.core.behaviours.SequentialBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
@@ -22,13 +23,8 @@ public class ManufacturerAgent extends Agent {
     // Called when the agent is being created
     @Override
     protected void setup() {
-        System.out.println("Hello, " + getLocalName() + " is starting...");
-
         // Register with DF
         addBehaviour(new RegisterWithDFAgent(this));
-
-        // Update simulation AID
-        addBehaviour(new FindSimulationInstance(this));
 
         // Add listener behaviour
         addBehaviour(new WaitForNewDay(this));
@@ -61,16 +57,20 @@ public class ManufacturerAgent extends Agent {
             ACLMessage msg = myAgent.receive(mt);
 
             if(msg != null) {
+                if(simulation == null) {
+                  simulation = msg.getSender();
+                }
                 if(msg.getContent().equals("new day")) {
-                    // Update the list of agents in the system
-                    addBehaviour(new UpdateAgentList(myAgent));
-                    /*myAgent.addBehaviour(new BookGenerator());
-                    myAgent.addBehaviour(new FindBuyers(myAgent));
-                    CyclicBehaviour os = new OffersServer(myAgent);
-                    myAgent.addBehaviour(os);
-                    ArrayList<Behaviour> cyclicBehaviours = new ArrayList<>();
-                    cyclicBehaviours.add(os);
-                    myAgent.addBehaviour(new EndDayListener(myAgent,cyclicBehaviours));*/
+                    // New Sequential behaviour for daily activities
+                    SequentialBehaviour dailyActivity = new SequentialBehaviour();
+
+                    // Add sub-behaviours (executed in the same order)
+                    dailyActivity.addSubBehaviour(new UpdateAgentList(myAgent));
+                    // TODO: add more behaviours like make order etc.
+                    dailyActivity.addSubBehaviour(new EndDay(myAgent));
+
+                    myAgent.addBehaviour(dailyActivity);
+
                 }
                 else {
                     // message to end simulation
@@ -148,27 +148,21 @@ public class ManufacturerAgent extends Agent {
         }
     }
 
-    // Set the simulation instance
-    private class FindSimulationInstance extends OneShotBehaviour {
-
-        FindSimulationInstance(Agent agent){
-            super(agent);
+    // Execute at the end of my daily activities
+    private class EndDay extends OneShotBehaviour {
+        // TODO: update later because its not end of the day?
+        EndDay(Agent a) {
+            super(a);
         }
 
         @Override
         public void action() {
-            // Create descriptions for each type of agent in the system
-            DFAgentDescription simulationAD = new DFAgentDescription();
-            ServiceDescription simulationSD = new ServiceDescription();
-            simulationSD.setType("simulation");
 
-            try {
-                DFAgentDescription[] simulationAgents = DFService.search(myAgent, simulationAD);
-                simulation = simulationAgents[0].getName();
-            }
-            catch (FIPAException e) {
-                e.printStackTrace();
-            }
+            // Tell the simulation that I am done for today
+            ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+            msg.addReceiver(simulation);
+            msg.setContent("done");
+            myAgent.send(msg);
         }
     }
 }

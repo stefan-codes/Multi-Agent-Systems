@@ -17,11 +17,12 @@ public class SimulationAgent extends Agent {
     private int daysToAchieve = 0;
     private int day = 1;
     private int agentsReady = 0;
+    private int agentsInTheSimulation = 0;
     private boolean waiting = false;
     private boolean doneForToday = false;
 
     private ArrayList<AID> manufacturers = new ArrayList<>();
-    private ArrayList<AID> clients = new ArrayList<>();
+    public ArrayList<AID> clients = new ArrayList<>();
     private ArrayList<AID> suppliers = new ArrayList<>();
 
     @Override
@@ -64,8 +65,6 @@ public class SimulationAgent extends Agent {
     // Synchronizing behaviour that ticks the days
     private class SyncAgentsBehaviour extends Behaviour {
 
-        private ArrayList<AID> agentsInTheSimulation = new ArrayList<>();
-
         SyncAgentsBehaviour(Agent agent){
             super(agent);
         }
@@ -80,22 +79,77 @@ public class SimulationAgent extends Agent {
                 if (msg != null) {
                     agentsReady++;
 
+                    System.out.println("I got " + agentsReady + " ready agents.");
                     // When we have all agents respond with done, move to next day
-                    if (agentsReady >= agentsInTheSimulation.size()){
+                    if (agentsReady >= agentsInTheSimulation){
                         doneForToday = true;
                     }
                 } else {
                     block();
                 }
             } else {
-                addBehaviour(new UpdateAgentList(myAgent));
+                // TODO: Why does it not work????? clients is empty
+                //addBehaviour(new UpdateAgentList(myAgent));
+
+                DFAgentDescription clientAD = new DFAgentDescription();
+                ServiceDescription clientSD = new ServiceDescription();
+                clientSD.setType("client");
+                clientAD.addServices(clientSD);
+
+                DFAgentDescription manufacturerAD = new DFAgentDescription();
+                ServiceDescription manufacturerSD = new ServiceDescription();
+                manufacturerSD.setType("manufacturer");
+                manufacturerAD.addServices(manufacturerSD);
+
+                DFAgentDescription supplierAD = new DFAgentDescription();
+                ServiceDescription supplierSD = new ServiceDescription();
+                supplierSD.setType("supplier");
+                supplierAD.addServices(supplierSD);
+
+                // Try to find all agents and add them to the list
+                try {
+                    DFAgentDescription[] clientAgents = DFService.search(myAgent, clientAD);
+                    for (DFAgentDescription client : clientAgents) {
+                        clients.add(client.getName());
+                        agentsInTheSimulation++;
+                    }
+
+                    DFAgentDescription[] manufacturerAgents = DFService.search(myAgent, manufacturerAD);
+                    for (DFAgentDescription manufacturer : manufacturerAgents) {
+                        manufacturers.add(manufacturer.getName());
+                        agentsInTheSimulation++;
+                    }
+
+                    DFAgentDescription[] supplierAgents = DFService.search(myAgent, supplierAD);
+                    for (DFAgentDescription supplier : supplierAgents) {
+                        suppliers.add(supplier.getName());
+                        agentsInTheSimulation++;
+                    }
+
+                }
+                catch (FIPAException e) {
+                    e.printStackTrace();
+                }
 
                 // Send "new day" message to all agents
                 ACLMessage message = new ACLMessage(ACLMessage.INFORM);
                 message.setContent("new day");
-                for(AID id : agentsInTheSimulation){
+
+                // Add all clients
+                for(AID id : clients){
                     message.addReceiver(id);
                 }
+
+                // Add all manufacturers
+                for(AID id : manufacturers){
+                    message.addReceiver(id);
+                }
+
+                // Add all suppliers
+                for(AID id : suppliers){
+                    message.addReceiver(id);
+                }
+
                 myAgent.send(message);
 
                 // Go to waiting stage
@@ -113,7 +167,7 @@ public class SimulationAgent extends Agent {
         @Override
         public void reset() {
             super.reset();
-            agentsInTheSimulation.clear();
+            agentsInTheSimulation = 0;
             doneForToday = false;
             waiting = false;
             agentsReady = 0;
@@ -129,10 +183,11 @@ public class SimulationAgent extends Agent {
                 ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
                 msg.setContent("finished");
 
+                // TODO: update
                 // Send to all agents
-                for (AID id : agentsInTheSimulation) {
+                /*for (AID id : agentsInTheSimulation) {
                     msg.addReceiver(id);
-                }
+                }*/
 
                 myAgent.send(msg);
                 myAgent.doDelete();
@@ -188,20 +243,24 @@ public class SimulationAgent extends Agent {
             DFAgentDescription clientAD = new DFAgentDescription();
             ServiceDescription clientSD = new ServiceDescription();
             clientSD.setType("client");
+            clientAD.addServices(clientSD);
 
             DFAgentDescription manufacturerAD = new DFAgentDescription();
             ServiceDescription manufacturerSD = new ServiceDescription();
             manufacturerSD.setType("manufacturer");
+            manufacturerAD.addServices(manufacturerSD);
 
             DFAgentDescription supplierAD = new DFAgentDescription();
             ServiceDescription supplierSD = new ServiceDescription();
             supplierSD.setType("supplier");
+            supplierAD.addServices(manufacturerSD);
 
             // Try to find all agents and add them to the list
             try {
                 DFAgentDescription[] clientAgents = DFService.search(myAgent, clientAD);
                 for (DFAgentDescription client : clientAgents) {
                     clients.add(client.getName());
+
                 }
 
                 DFAgentDescription[] manufacturerAgents = DFService.search(myAgent, manufacturerAD);
