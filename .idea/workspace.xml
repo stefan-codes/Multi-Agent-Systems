@@ -25,11 +25,11 @@
     <property name="TODO_SCOPE" value="All Places" />
     <property name="WebServerToolWindowFactoryState" value="false" />
     <property name="aspect.path.notification.shown" value="true" />
-    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$/../MusicShopOntology/JADE_examples" />
     <property name="project.structure.last.edited" value="Libraries" />
     <property name="project.structure.proportion" value="0.0" />
     <property name="project.structure.side.proportion" value="0.2" />
-    <property name="settings.editor.selected.configurable" value="preferences.pluginManager" />
+    <property name="settings.editor.selected.configurable" value="preferences.lookFeel" />
   </component>
   <component name="RunDashboard">
     <option name="ruleStates">
@@ -79,7 +79,10 @@
       <workItem from="1574356127021" duration="846000" />
       <workItem from="1574376948502" duration="3273000" />
       <workItem from="1574434130354" duration="4006000" />
-      <workItem from="1574454510737" duration="16901000" />
+      <workItem from="1574454510737" duration="21424000" />
+      <workItem from="1574520553022" duration="52875000" />
+      <workItem from="1574790044243" duration="351000" />
+      <workItem from="1574918244757" duration="7186000" />
     </task>
     <servers />
   </component>

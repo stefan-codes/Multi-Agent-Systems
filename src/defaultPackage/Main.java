@@ -17,7 +17,7 @@ public class Main {
 
         // Variables for the simulation
         Integer[] daysToRun = {100};
-        int numberOfClients = 3;
+        int numberOfCustomers = 3;
         int numberOfSuppliers = 2;
 
         try{
@@ -25,10 +25,10 @@ public class Main {
             AgentController rma = myContainer.createNewAgent("rma", "jade.tools.rma.rma", null);
             rma.start();
 
-            // Start the client Agents
-            for (int i = 0; i < numberOfClients; i++) {
-                AgentController client = myContainer.createNewAgent("Client"+i, ClientAgent.class.getCanonicalName(), null);
-                client.start();
+            // Start the customer Agents
+            for (int i = 0; i < numberOfCustomers; i++) {
+                AgentController customer = myContainer.createNewAgent("Customer"+i, CustomerAgent.class.getCanonicalName(), null);
+                customer.start();
             }
 
             // Start the Manufacturer Agent
@@ -37,7 +37,7 @@ public class Main {
 
             // Start the Supplier Agents
             for (int i = 0; i < numberOfSuppliers; i++) {
-                AgentController supplier = myContainer.createNewAgent("Supplier"+i, SupplierAgent.class.getCanonicalName(), null);
+                AgentController supplier = myContainer.createNewAgent("Supplier"+i, SupplierAgent.class.getCanonicalName(), new Integer[]{i});
                 supplier.start();
             }
 

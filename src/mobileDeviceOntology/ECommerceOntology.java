@@ -8,19 +8,21 @@ public class ECommerceOntology extends BeanOntology {
 
     private static Ontology instance = new ECommerceOntology("myOntology");
 
+    public static Ontology getInstance(){
+        return instance;
+    }
+
     private ECommerceOntology(String name) {
         super(name);
         try {
             add("mobileDeviceOntology.agentActions");
             add("mobileDeviceOntology.concepts");
-            add("mobileDeviceOntology.predicates");
+            //add("mobileDeviceOntology.predicates");
         }
         catch (BeanOntologyException e) {
             e.printStackTrace();
         }
     }
 
-    public static Ontology getInstance(){
-        return instance;
-    }
+
 }
