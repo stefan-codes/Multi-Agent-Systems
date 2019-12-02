@@ -1,5 +1,6 @@
 package agents;
 
+import jade.content.ContentElement;
 import jade.content.lang.Codec;
 import jade.content.lang.Codec.CodecException;
 import jade.content.lang.sl.SLCodec;
@@ -19,32 +20,44 @@ import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 import mobileDeviceOntology.ECommerceOntology;
-import mobileDeviceOntology.agentActions.OrderSmartphones;
+import mobileDeviceOntology.agentActions.orders.PlaceCustomerOrder;
 import mobileDeviceOntology.concepts.*;
+import mobileDeviceOntology.concepts.components.PhoneComponent;
+import mobileDeviceOntology.concepts.orders.CustomerOrder;
+import mobileDeviceOntology.predicates.orders.DeliverCustomerOrder;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Random;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class CustomerAgent extends Agent {
 
+    private static final Logger LOGGER = Logger.getLogger( CustomerAgent.class.getName() );
     private Codec codec = new SLCodec();
     private Ontology ontology = ECommerceOntology.getInstance();
 
     private int day;
     private AID simulation;
     private AID manufacturer;
-    private String orderNumber;
+
+    private HashMap<String, CustomerOrder> confirmedOrders;
+    private CustomerOrder openOrder;
 
     // Called when the agent is being created
     @Override
     protected void setup() {
+        confirmedOrders = new HashMap<>();
         getContentManager().registerLanguage(codec);
         getContentManager().registerOntology(ontology);
 
         // Register with DF
-        addBehaviour(new RegisterWithDFAgent(this));
+        addBehaviour(new RegisterWithDFAgent());
 
         // Add listener behaviour
-        addBehaviour(new WaitForNewDay(this));
+        addBehaviour(new WaitForNewDay());
     }
 
     // Called when the agent is being decommissioned
@@ -62,11 +75,6 @@ public class CustomerAgent extends Agent {
     // A behaviour to way for a new day - MAIN behaviour
     private class WaitForNewDay extends CyclicBehaviour {
 
-        // Constructor with an agent
-        WaitForNewDay(Agent agent){
-            super(agent);
-        }
-
         @Override
         public void action() {
             // Listen for New day or finish commands from the simulation
@@ -82,6 +90,10 @@ public class CustomerAgent extends Agent {
                 // If it tells us to terminate
                 if (msg.getContent().equals("terminate")) {
                     // message to end simulation
+                    if (confirmedOrders.size() > 0) {
+                        // TODO: Check if it works
+                        LOGGER.log(Level.INFO, "{0}, has incomplete orders. {1}", new Object[]{ myAgent.getLocalName(), confirmedOrders.size() } );
+                    }
                     System.out.println(myAgent.getLocalName() + " decommissioned.");
                     myAgent.doDelete();
                 } else {
@@ -96,10 +108,10 @@ public class CustomerAgent extends Agent {
                     // New Sequential behaviour for daily activities
                     SequentialBehaviour dailyActivity = new SequentialBehaviour();
                     // Add sub-behaviours (executed in the same order)
-                    dailyActivity.addSubBehaviour(new UpdateAgentList(myAgent));
-                    dailyActivity.addSubBehaviour(new CreateAndSendOrder(myAgent));
-                    dailyActivity.addSubBehaviour(new ListenForResponse(myAgent));
-                    dailyActivity.addSubBehaviour(new EndDay(myAgent));
+                    dailyActivity.addSubBehaviour(new UpdateAgentList());
+                    dailyActivity.addSubBehaviour(new CreateAndSendOrder());
+                    dailyActivity.addSubBehaviour(new WaitForCompleteOrders());
+                    dailyActivity.addSubBehaviour(new EndDay());
 
                     myAgent.addBehaviour(dailyActivity);
                 }
@@ -112,10 +124,6 @@ public class CustomerAgent extends Agent {
 
     // Register the agent with the DF agent for Yellow Pages
     private class RegisterWithDFAgent extends OneShotBehaviour {
-
-        RegisterWithDFAgent(Agent agent){
-            super(agent);
-        }
 
         @Override
         public void action() {
@@ -141,10 +149,6 @@ public class CustomerAgent extends Agent {
     // Update the list of agents in the simulation
     private class UpdateAgentList extends OneShotBehaviour {
 
-        UpdateAgentList(Agent agent){
-            super(agent);
-        }
-
         @Override
         public void action() {
             // Create descriptions for each type of agent in the system
@@ -167,74 +171,100 @@ public class CustomerAgent extends Agent {
     }
 
     // Creates and sends an order to all known manufacturers
-    private class CreateAndSendOrder extends OneShotBehaviour {
+    private class CreateAndSendOrder extends Behaviour {
 
-        CreateAndSendOrder(Agent agent) {
-            super(agent);
-        }
+        boolean waitingForConfirmation = false;
+        boolean terminate = false;
 
         @Override
         public void action() {
 
-            /* Comprise phone type */
-            Smartphone smartphone = specifySmartphone();
+            if (!waitingForConfirmation) {
+                MessageTemplate mt = MessageTemplate.or(MessageTemplate.MatchPerformative(ACLMessage.AGREE),
+                                                        MessageTemplate.MatchPerformative(ACLMessage.REFUSE));
+                ACLMessage msg = receive(mt);
 
+                if (msg != null) {
+                    if (msg.getPerformative() == ACLMessage.AGREE) {
+                        // Remove order from the openOrders
+                        confirmedOrders.putIfAbsent(openOrder.getOrderNumber(), openOrder);
+                    }
+                    terminate = true;
+                } else {
+                    block();
+                }
+            } else {
+                /* Comprise phone type */
+                Smartphone smartphone = generateSmartphone();
 
-            /* Create an order */
-            OrderSmartphones order = generateOrderSmartphones(day, myAgent.getAID(), smartphone);
-            orderNumber = order.getOrderNumber();
+                /* Create an order */
+                CustomerOrder order = generateCustomerOrder(day, myAgent.getAID(), smartphone);
 
-            /* Send the order */
-            // Prepare the message
-            ACLMessage proposal = new ACLMessage(ACLMessage.PROPOSE);
-            proposal.setLanguage(codec.getName());
-            proposal.setOntology(ontology.getName());
-            proposal.addReceiver(manufacturer);
-            proposal.setReplyWith(orderNumber);
+                /* Create an action */
+                PlaceCustomerOrder placeCustomerOrder = new PlaceCustomerOrder();
+                placeCustomerOrder.setCustomerOrder(order);
+                placeCustomerOrder.setDayPlaced(day);
 
-            //IMPORTANT: According to FIPA, we need to create a wrapper Action object
-            //with the action and the AID of the agent
-            //we are requesting to perform the action
-            //you will get an exception if you try to send the sell action directly
-            //not inside the wrapper!!!
-            // TODO: QUESTION - do we want the receiver or the one executing it?
-            Action request = new Action();
-            request.setAction(order);
-            request.setActor(manufacturer);
+                // Prepare the message
+                ACLMessage proposal = new ACLMessage(ACLMessage.REQUEST);
+                proposal.setLanguage(codec.getName());
+                proposal.setOntology(ontology.getName());
+                proposal.addReceiver(manufacturer);
+                proposal.setReplyWith(order.getOrderNumber());
 
-            // Fill content and send
-            try {
-                getContentManager().fillContent(proposal, request);
-                send(proposal);
-            }
-            catch (CodecException | OntologyException e) {
-                e.printStackTrace();
+                Action request = new Action();
+                request.setAction(order);
+                request.setActor(manufacturer);
+
+                // Fill content and send
+                try {
+                    getContentManager().fillContent(proposal, request);
+                    send(proposal);
+                    openOrder = order;
+                    waitingForConfirmation = true;
+                }
+                catch (CodecException | OntologyException e) {
+                    e.printStackTrace();
+                }
             }
         }
+
+        @Override
+        public boolean done() {
+            return terminate;
+        }
+
+
     }
 
     // Listen for an answer to our proposal
-    private class ListenForResponse extends Behaviour {
+    private class WaitForCompleteOrders extends Behaviour {
 
         boolean responseReceived = false;
-        ListenForResponse(Agent agent){
-            super(agent);
-        }
 
         @Override
         public void action() {
-            MessageTemplate mt = MessageTemplate.MatchReplyWith(orderNumber);
+            MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.INFORM);
             ACLMessage msg = myAgent.receive(mt);
 
             if (msg != null) {
                 // Logic what to do, but we dont need any
-                if (msg.getPerformative() == ACLMessage.ACCEPT_PROPOSAL) {
-                    //System.out.println("Proposal accepted + " + myAgent.getLocalName());
+                if (msg.getContent().equals("no delivery")) {
                     responseReceived = true;
-                }
-
-                if (msg.getPerformative() == ACLMessage.REJECT_PROPOSAL) {
-                    responseReceived = true;
+                } else {
+                    try {
+                        ContentElement ce = getContentManager().extractContent(msg);
+                        if (ce instanceof DeliverCustomerOrder) {
+                            DeliverCustomerOrder dco = (DeliverCustomerOrder)ce;
+                            // TODO: COULD - actually check if the order is ok but no time...
+                            confirmedOrders.remove(dco.getCustomerOrder().getOrderNumber());
+                            responseReceived = true;
+                        }
+                    }
+                    catch (CodecException | OntologyException e) {
+                        // If we get an error, just reject the order
+                        e.printStackTrace();
+                    }
                 }
             }
         }
@@ -247,9 +277,6 @@ public class CustomerAgent extends Agent {
 
     // Execute at the end of my daily activities
     private class EndDay extends OneShotBehaviour {
-        EndDay(Agent a) {
-            super(a);
-        }
 
         @Override
         public void action() {
@@ -263,8 +290,8 @@ public class CustomerAgent extends Agent {
 
     /* Methods */
 
-    // Creates a OrderSmartphones based on the provided rules
-    private OrderSmartphones generateOrderSmartphones(int day, AID agentAID, Smartphone smartphone) {
+    // Creates a PlaceOrderSmartphones based on the provided rules
+    private CustomerOrder generateCustomerOrder(int day, AID agentAID, Smartphone smartphone) {
 
         Random random = new Random();
 
@@ -278,20 +305,17 @@ public class CustomerAgent extends Agent {
             // Penalty
             int delayPenaltyPerDay = quantity * (int) Math.floor(1 + 50*random.nextFloat());
 
-            OrderSmartphones orderSmartphones = new OrderSmartphones();
+            CustomerOrder customerOrder = new CustomerOrder();
             // From order
-            orderSmartphones.setOrderNumber(UUID.randomUUID().toString());
-            orderSmartphones.setDayPlaced(day);
-            orderSmartphones.setOrderedBy(agentAID);
+            customerOrder.setDelayPenaltyPerDay(delayPenaltyPerDay);
+            customerOrder.setDueDate(dueDate);
+            customerOrder.setPricePerUnit(pricePerUnit);
+            customerOrder.setQuantity(quantity);
+            customerOrder.setSmartphone(smartphone);
+            customerOrder.setOrderedBy(agentAID);
+            customerOrder.setOrderNumber(UUID.randomUUID().toString());
 
-            // OderSmartphone
-            orderSmartphones.setSmartphone(smartphone);
-            orderSmartphones.setQuantity(quantity);
-            orderSmartphones.setDueDate(dueDate);
-            orderSmartphones.setPricePerUnit(pricePerUnit);
-            orderSmartphones.setDelayPenaltyPerDay(delayPenaltyPerDay);
-
-            return orderSmartphones;
+            return customerOrder;
         }
         catch (NumberFormatException e) {
             e.printStackTrace();
@@ -300,17 +324,19 @@ public class CustomerAgent extends Agent {
     }
 
     // Compiles a smartphone based on the constrains and returns an object instance of it
-    private Smartphone specifySmartphone() {
+    private Smartphone generateSmartphone() {
 
         Random random = new Random();
-        Screen screen = new Screen();
-        screen.setSerialNumber(UUID.randomUUID().toString());
-        Storage storage = new Storage();
-        storage.setSerialNumber(UUID.randomUUID().toString());
-        RAM ram = new RAM();
-        ram.setSerialNumber(UUID.randomUUID().toString());
-        Battery battery = new Battery();
-        battery.setSerialNumber(UUID.randomUUID().toString());
+        ArrayList<PhoneComponent> components = new ArrayList<>();
+
+        PhoneComponent screen = new PhoneComponent();
+        screen.setType("screen");
+        PhoneComponent storage = new PhoneComponent();
+        storage.setType("storage");
+        PhoneComponent ram = new PhoneComponent();
+        ram.setType("ram");
+        PhoneComponent battery = new PhoneComponent();
+        battery.setType("battery");
         Smartphone smartphone = new Smartphone();
 
         // screen size and battery
@@ -338,10 +364,10 @@ public class CustomerAgent extends Agent {
             storage.setSize(256);
         }
 
-        smartphone.setScreen(screen);
-        smartphone.setBattery(battery);
-        smartphone.setRam(ram);
-        smartphone.setStorage(storage);
+        components.add(screen);
+        components.add(storage);
+        components.add(ram);
+        components.add(battery);
 
         return smartphone;
     }

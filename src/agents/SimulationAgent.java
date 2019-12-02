@@ -44,7 +44,7 @@ public class SimulationAgent extends Agent {
         }
 
         // Wait for rest of the agents to load
-        doWait(1000);
+        doWait(500);
 
         // Start the synchronizer
         addBehaviour(new SyncAgentsBehaviour(this));

@@ -17,7 +17,7 @@ public class ECommerceOntology extends BeanOntology {
         try {
             add("mobileDeviceOntology.agentActions");
             add("mobileDeviceOntology.concepts");
-            //add("mobileDeviceOntology.predicates");
+            add("mobileDeviceOntology.predicates");
         }
         catch (BeanOntologyException e) {
             e.printStackTrace();

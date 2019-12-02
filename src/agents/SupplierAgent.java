@@ -1,13 +1,16 @@
 package agents;
 
-import jade.content.AgentAction;
+import jade.content.Concept;
+import jade.content.ContentElement;
 import jade.content.lang.Codec;
+import jade.content.lang.Codec.CodecException;
 import jade.content.lang.sl.SLCodec;
 import jade.content.onto.Ontology;
 import jade.content.onto.OntologyException;
 import jade.content.onto.basic.Action;
 import jade.core.AID;
 import jade.core.Agent;
+import jade.core.behaviours.Behaviour;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.core.behaviours.OneShotBehaviour;
 import jade.core.behaviours.SequentialBehaviour;
@@ -18,8 +21,16 @@ import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 import mobileDeviceOntology.ECommerceOntology;
-import mobileDeviceOntology.agentActions.SendPriceList;
-import mobileDeviceOntology.concepts.PriceList;
+import mobileDeviceOntology.agentActions.orders.PlaceComponentsOrder;
+import mobileDeviceOntology.concepts.Inventory;
+import mobileDeviceOntology.concepts.items.InventoryItem;
+import mobileDeviceOntology.concepts.items.OrderItem;
+import mobileDeviceOntology.concepts.orders.ComponentsOrder;
+import mobileDeviceOntology.predicates.SendInventory;
+import mobileDeviceOntology.predicates.orders.DeliverComponentsOrder;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 
 public class SupplierAgent extends Agent {
 
@@ -29,8 +40,12 @@ public class SupplierAgent extends Agent {
     private int day;
     private AID simulation;
     private AID manufacturer;
-    private PriceList priceList;
 
+    private Inventory inventory;
+
+    private HashMap<Integer, ArrayList<ComponentsOrder>> toDo = new HashMap<>();
+
+    /* Defaults */
 
     // Called when the agent is being created
     @Override
@@ -41,17 +56,8 @@ public class SupplierAgent extends Agent {
         // Register with DF
         addBehaviour(new RegisterWithDFAgent(this));
 
-        // Update priceList
-        Object[] args = getArguments();
-        if (args != null && args.length>0) {
-            try {
-                updatePriceList(this, args[0]);
-            }
-            catch (NumberFormatException nfe){
-                nfe.printStackTrace();
-            }
-        }
-
+        // Update the price list
+        createInventory(this);
 
         // Add listener behaviour
         addBehaviour(new WaitForNewDay(this));
@@ -68,6 +74,49 @@ public class SupplierAgent extends Agent {
             e.printStackTrace();
         }
     }
+
+    // Execute at the end of my daily activities
+    private class EndDay extends OneShotBehaviour {
+
+        @Override
+        public void action() {
+            // Tell the simulation that I am done for today
+            ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+            msg.addReceiver(simulation);
+            msg.setContent("done");
+            send(msg);
+        }
+    }
+
+    // Register the agent with the DF agent for Yellow Pages
+    private class RegisterWithDFAgent extends OneShotBehaviour {
+
+        RegisterWithDFAgent(Agent agent){
+            super(agent);
+        }
+
+        @Override
+        public void action() {
+            // Register with the DF agent for the yellow pages
+            DFAgentDescription dfd = new DFAgentDescription();
+            dfd.setName(getAID());
+
+            ServiceDescription sd = new ServiceDescription();
+            sd.setType("supplier");
+            sd.setName(getLocalName() + "-supplier-agent");
+
+            dfd.addServices(sd);
+
+            try {
+                DFService.register(myAgent, dfd);
+            }
+            catch (FIPAException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /* Custom Behaviours */
 
     // A behaviour to way for a new day - MAIN behaviour
     private class WaitForNewDay extends CyclicBehaviour {
@@ -105,11 +154,11 @@ public class SupplierAgent extends Agent {
                     // New Sequential behaviour for daily activities
                     SequentialBehaviour dailyActivity = new SequentialBehaviour();
 
-                    // Add sub-behaviours (executed in the same order)
-                    dailyActivity.addSubBehaviour(new UpdateAgentList(myAgent));
-                    // TODO: Send daily orders
-                    dailyActivity.addSubBehaviour(new SendPriceListAction(myAgent));
-                    dailyActivity.addSubBehaviour(new EndDay(myAgent));
+                    dailyActivity.addSubBehaviour(new UpdateAgentList());
+                    dailyActivity.addSubBehaviour(new SendPriceListAction());
+                    dailyActivity.addSubBehaviour(new SendDailyOrders());
+                    dailyActivity.addSubBehaviour(new ListenForOrders());
+                    dailyActivity.addSubBehaviour(new EndDay());
 
                     myAgent.addBehaviour(dailyActivity);
                 }
@@ -120,40 +169,8 @@ public class SupplierAgent extends Agent {
         }
     }
 
-    // Register the agent with the DF agent for Yellow Pages
-    private class RegisterWithDFAgent extends OneShotBehaviour {
-
-        RegisterWithDFAgent(Agent agent){
-            super(agent);
-        }
-
-        @Override
-        public void action() {
-            // Register with the DF agent for the yellow pages
-            DFAgentDescription dfd = new DFAgentDescription();
-            dfd.setName(getAID());
-
-            ServiceDescription sd = new ServiceDescription();
-            sd.setType("supplier");
-            sd.setName(getLocalName() + "-supplier-agent");
-
-            dfd.addServices(sd);
-
-            try {
-                DFService.register(myAgent, dfd);
-            }
-            catch (FIPAException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    // Update the list of agents in the simulation
+    // Update the list of agents in the simulation (Only Manufacturer)
     private class UpdateAgentList extends OneShotBehaviour {
-
-        UpdateAgentList(Agent agent){
-            super(agent);
-        }
 
         @Override
         public void action() {
@@ -177,29 +194,67 @@ public class SupplierAgent extends Agent {
         }
     }
 
-    // Send the priceList to the manufacturer
-    private class SendPriceListAction extends OneShotBehaviour {
-
-        SendPriceListAction(Agent agent) { super(agent); }
+    // Send the orders for today
+    private class SendDailyOrders extends OneShotBehaviour {
 
         @Override
         public void action() {
 
-            SendPriceList sendPriceList = new SendPriceList();
-            sendPriceList.setPriceList(priceList);
+            ACLMessage message = new ACLMessage(ACLMessage.INFORM);
+            message.addReceiver(manufacturer);
 
+            if (toDo.containsKey(day)) {
+                // Send the components
+                for (ComponentsOrder componentsOrder : toDo.get(day)) {
+                    // Set the order
+                    DeliverComponentsOrder deliverComponentsOrder = new DeliverComponentsOrder();
+                    deliverComponentsOrder.setComponentsOrder(componentsOrder);
+                    deliverComponentsOrder.setDayDelivered(day);
+
+                    // Prepare the message
+                    message.setLanguage(codec.getName());
+                    message.setOntology(ontology.getName());
+                    message.setReplyWith(componentsOrder.getOrderNumber());
+
+                    // Fill content and send
+                    try {
+                        getContentManager().fillContent(message, deliverComponentsOrder);
+                        send(message);
+                    }
+                    catch (Codec.CodecException | OntologyException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                toDo.get(day).clear();
+            } else {
+                message.setContent("no orders");
+                send(message);
+            }
+        }
+    }
+
+    // Send the priceList to the manufacturer
+    private class SendPriceListAction extends OneShotBehaviour {
+
+        @Override
+        public void action() {
+
+            // Create the predicate
+            SendInventory sendInventory = new SendInventory();
+            sendInventory.setInventory(inventory);
+            sendInventory.setDaySent(day);
+
+            // Create the message
             ACLMessage informationMessage = new ACLMessage(ACLMessage.INFORM);
             informationMessage.setLanguage(codec.getName());
             informationMessage.setOntology(ontology.getName());
             informationMessage.addReceiver(manufacturer);
-
-            Action informAction = new Action();
-            informAction.setAction(sendPriceList);
-            informAction.setActor(manufacturer);
+            informationMessage.setConversationId("inventory");
 
             // Fill content and send
             try {
-                getContentManager().fillContent(informationMessage, informAction);
+                getContentManager().fillContent(informationMessage, sendInventory);
                 send(informationMessage);
             }
             catch (Codec.CodecException | OntologyException e) {
@@ -208,51 +263,111 @@ public class SupplierAgent extends Agent {
         }
     }
 
-    // Execute at the end of my daily activities
-    private class EndDay extends OneShotBehaviour {
-        EndDay(Agent a) {
-            super(a);
+    // Accepts new order if it can deliver
+    private class ListenForOrders extends Behaviour {
+
+        boolean terminate;
+
+        @Override
+        public void onStart() {
+            terminate = false;
         }
 
         @Override
         public void action() {
-            // Tell the simulation that I am done for today
-            ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
-            msg.addReceiver(simulation);
-            msg.setContent("done");
-            myAgent.send(msg);
+
+            MessageTemplate mt = MessageTemplate.or(MessageTemplate.MatchPerformative(ACLMessage.REQUEST),
+                                                    MessageTemplate.MatchPerformative(ACLMessage.INFORM));
+            ACLMessage msg = receive(mt);
+
+            if(msg != null) {
+
+                if (msg.getPerformative() == ACLMessage.INFORM) {
+                    if (msg.getContent().equals("no orders")){
+                        terminate = true;
+                    }
+                }
+
+                // If we get a proposal, review it
+                if (msg.getPerformative() == ACLMessage.REQUEST){
+                    // When we find a proposal
+                    ACLMessage reply = new ACLMessage(ACLMessage.REFUSE);
+                    reply.addReceiver(msg.getSender());
+                    reply.setReplyWith(msg.getReplyWith());
+
+                    if (day + inventory.getDeliverySpeed() <= 100) {
+                        // Get the content out of the message
+                        try {
+                            ContentElement ce = getContentManager().extractContent(msg);
+                            if (ce instanceof Action) {
+                                Concept c = ((Action) ce).getAction();
+                                if (c instanceof PlaceComponentsOrder) {
+                                    ComponentsOrder order = ((PlaceComponentsOrder) c).getComponentsOrder();
+
+                                    if (order.getItems().isEmpty()) {
+                                        System.out.println("Got an empty request, wtf");
+                                    } else {
+                                        // Check if I sell every component
+                                        if (checkIfISellTheComponents(order)) {
+                                            // Take the order
+                                            toDo.putIfAbsent(day + inventory.getDeliverySpeed(), new ArrayList<>());
+                                            toDo.get(day + inventory.getDeliverySpeed()).add(order);
+                                            reply.setPerformative(ACLMessage.AGREE);
+                                        } else {
+                                            System.out.println("I dont have all components, someone ordered wrong.");
+                                            reply.setContent("I dont sell all of the components.");
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (CodecException | OntologyException e) {
+                            // If we get an error, just reject the order
+                            e.printStackTrace();
+                        }
+                    }
+
+                    myAgent.send(reply);
+                }
+
+            } else {
+                block();
+            }
+        }
+
+        @Override
+        public boolean done() {
+            return terminate;
         }
     }
 
+
     /* Methods */
 
-    // Update the priceList
-    private void updatePriceList(Agent agent, Object id) {
-        int type = (int) id;
-        priceList = new PriceList();
-        priceList.setFromSupplier(agent.getAID());
-        if (type == 0) {
-            priceList.setScreen5Price(100);
-            priceList.setScreen7Price(150);
-            priceList.setStorage64Price(25);
-            priceList.setStorage256Price(50);
-            priceList.setRam4Price(30);
-            priceList.setRam8Price(60);
-            priceList.setBattery2000Price(70);
-            priceList.setBattery3000Price(100);
-            priceList.setDaysToDeliver(1);
-        } else {
-            // For now we have only two types of suppliers
-            priceList.setScreen5Price(-1);
-            priceList.setScreen7Price(-1);
-            priceList.setStorage64Price(15);
-            priceList.setStorage256Price(40);
-            priceList.setRam4Price(20);
-            priceList.setRam8Price(35);
-            priceList.setBattery2000Price(-1);
-            priceList.setBattery3000Price(-1);
-            priceList.setDaysToDeliver(4);
+    // Create the inventory
+    private void createInventory(Agent agent) {
+        Object[] args = getArguments();
+        if (args != null && args.length>0) {
+            try {
+                inventory = (Inventory) args[0];
+                inventory.setOwner(agent.getAID());
+            }
+            catch (ClassCastException e){
+                e.printStackTrace();
+            }
+        }
+    }
+
+    // Check if the supplier sells each item in the order
+    private boolean checkIfISellTheComponents(ComponentsOrder order) {
+        int counter = 0;
+        for(OrderItem orderItem : order.getItems()) {
+            for (InventoryItem inventoryItem : inventory.getItems()) {
+                if (orderItem.getComponent().getType().equals(inventoryItem.getComponent().getType()) && orderItem.getComponent().getSize() == inventoryItem.getComponent().getSize()){
+                    counter++;
+                }
+            }
         }
 
+        return counter == order.getItems().size();
     }
 }

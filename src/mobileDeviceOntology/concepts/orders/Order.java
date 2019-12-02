@@ -1,26 +1,19 @@
-package mobileDeviceOntology.agentActions;
+package mobileDeviceOntology.concepts.orders;
 
-import jade.content.AgentAction;
+import jade.content.Concept;
 import jade.content.onto.annotations.Slot;
 import jade.core.AID;
 
-import java.util.UUID;
+public class Order implements Concept {
 
-public class Order implements AgentAction {
-    private String orderNumber;
-    private int dayPlaced;
     private AID orderedBy;
+    private String orderNumber;
 
     /* Getters */
 
-    @Slot (mandatory = true)
+    @Slot(mandatory = true)
     public String getOrderNumber() {
         return orderNumber;
-    }
-
-    @Slot (mandatory = true)
-    public int getDayPlaced() {
-        return dayPlaced;
     }
 
     @Slot (mandatory = true)
@@ -34,11 +27,8 @@ public class Order implements AgentAction {
         this.orderNumber = orderNumber;
     }
 
-    public void setDayPlaced(int dayPlaced) {
-        this.dayPlaced = dayPlaced;
-    }
-
     public void setOrderedBy(AID orderedBy) {
         this.orderedBy = orderedBy;
     }
+
 }

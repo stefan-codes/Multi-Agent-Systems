@@ -1,52 +1,25 @@
 package mobileDeviceOntology.concepts;
 
 import jade.content.Concept;
-import jade.content.onto.annotations.Slot;
+import jade.content.onto.annotations.AggregateSlot;
+import mobileDeviceOntology.concepts.components.PhoneComponent;
+
+import java.util.ArrayList;
 
 public class Smartphone implements Concept {
 
-    private Screen screen;
-    private Storage storage;
-    private RAM ram;
-    private Battery battery;
+    private ArrayList<PhoneComponent> components;
 
     /* Getters */
 
-    @Slot (mandatory = true)
-    public Screen getScreen() {
-        return screen;
-    }
-
-    @Slot (mandatory = true)
-    public Storage getStorage() {
-        return storage;
-    }
-
-    @Slot (mandatory = true)
-    public RAM getRam() {
-        return ram;
-    }
-
-    @Slot (mandatory = true)
-    public Battery getBattery() {
-        return battery;
+    @AggregateSlot (cardMin = 1)
+    public ArrayList<PhoneComponent> getComponents() {
+        return components;
     }
 
     /* Setters */
 
-    public void setScreen(Screen screen) {
-        this.screen = screen;
-    }
-
-    public void setStorage(Storage storage) {
-        this.storage = storage;
-    }
-
-    public void setRam(RAM ram) {
-        this.ram = ram;
-    }
-
-    public void setBattery(Battery battery) {
-        this.battery = battery;
+    public void setComponents(ArrayList<PhoneComponent> components) {
+        this.components = components;
     }
 }

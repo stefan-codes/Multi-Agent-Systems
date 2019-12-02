@@ -1,9 +1,9 @@
-package mobileDeviceOntology.agentActions;
+package mobileDeviceOntology.concepts.orders;
 
 import jade.content.onto.annotations.Slot;
 import mobileDeviceOntology.concepts.Smartphone;
 
-public class OrderSmartphones extends Order {
+public class CustomerOrder extends Order {
 
     private Smartphone smartphone;
     private int quantity;
@@ -13,7 +13,7 @@ public class OrderSmartphones extends Order {
 
     /* Getters */
 
-    @Slot (mandatory = true)
+    @Slot(mandatory = true)
     public Smartphone getSmartphone() {
         return smartphone;
     }
@@ -59,5 +59,4 @@ public class OrderSmartphones extends Order {
     public void setDelayPenaltyPerDay(int delayPenaltyPerDay) {
         this.delayPenaltyPerDay = delayPenaltyPerDay;
     }
-
 }

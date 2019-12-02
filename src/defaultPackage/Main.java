@@ -35,10 +35,9 @@ public class Main {
             AgentController manufacturer = myContainer.createNewAgent("Manufacturer", ManufacturerAgent.class.getCanonicalName(), null);
             manufacturer.start();
 
-            // Start the Supplier Agents
+            // Suppliers
             for (int i = 0; i < numberOfSuppliers; i++) {
-                AgentController supplier = myContainer.createNewAgent("Supplier"+i, SupplierAgent.class.getCanonicalName(), new Integer[]{i});
-                supplier.start();
+                SupplierManufacturer.CreateSupplier(myContainer, "Supplier"+i, i);
             }
 
             // Start the Simulation Agent
