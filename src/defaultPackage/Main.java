@@ -24,6 +24,7 @@ public class Main {
             // Start the agent controller, which is itself an agent (rma)
             AgentController rma = myContainer.createNewAgent("rma", "jade.tools.rma.rma", null);
             rma.start();
+            System.out.println("RMA started");
 
             // Start the customer Agents
             for (int i = 0; i < numberOfCustomers; i++) {

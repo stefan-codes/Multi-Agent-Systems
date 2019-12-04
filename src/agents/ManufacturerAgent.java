@@ -20,16 +20,21 @@ import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
+import jade.tools.sniffer.Message;
 import mobileDeviceOntology.ECommerceOntology;
+import mobileDeviceOntology.agentActions.RequestInventory;
 import mobileDeviceOntology.agentActions.orders.PlaceComponentsOrder;
 import mobileDeviceOntology.agentActions.orders.PlaceCustomerOrder;
 import mobileDeviceOntology.concepts.components.*;
 import mobileDeviceOntology.concepts.items.InventoryItem;
-import mobileDeviceOntology.concepts.items.Item;
 import mobileDeviceOntology.concepts.items.OrderItem;
+import mobileDeviceOntology.concepts.orders.ComponentsOrder;
 import mobileDeviceOntology.concepts.orders.CustomerOrder;
 import mobileDeviceOntology.predicates.SendInventory;
 import mobileDeviceOntology.concepts.*;
+import mobileDeviceOntology.predicates.orders.DeliverComponentsOrder;
+import mobileDeviceOntology.predicates.orders.DeliverCustomerOrder;
+import org.w3c.dom.ls.LSOutput;
 
 import java.util.*;
 
@@ -50,10 +55,16 @@ public class ManufacturerAgent extends Agent {
 
     //
     private HashMap<AID, Inventory> supplierCatalogue = new HashMap<>();
+
+    // Work data structures
     private HashMap<Integer, Integer> calendar = new HashMap<>();
     private HashMap<Integer, ArrayList<Work>> workSchedule = new HashMap<>();
     private HashMap<Integer, PartsToBeOrdered> orderSchedule = new HashMap<>();
     private HashMap<CustomerOrder, Integer> openOrders = new HashMap<>();
+
+    // Component Orders
+    private HashMap<String, ComponentsOrder> unconfirmedComponentsOrders = new HashMap<>();
+    private HashMap<String, ComponentsOrder> confirmedComponentsOrders = new HashMap<>();
 
     // Properties for the strategy
     private int workCapacity = 50;
@@ -105,6 +116,7 @@ public class ManufacturerAgent extends Agent {
                     myAgent.doDelete();
                 } else {
                     // It is a new day
+
                     try {
                         day = Integer.parseInt(msg.getContent());
                     }
@@ -117,13 +129,14 @@ public class ManufacturerAgent extends Agent {
 
                     // Add sub-behaviours (executed in the same order)
                     dailyActivity.addSubBehaviour(new UpdateAgentList());
-                    // TODO: SHOULD - Receive items from suppliers, but I assume they came
-                    dailyActivity.addSubBehaviour(new UpdatePriceCatalogue());
-                    dailyActivity.addSubBehaviour(new ReceiveCustomerOrders());
-                    dailyActivity.addSubBehaviour(new OrderComponentsBehaviour());
-                    // TODO COULD - Check if I get a confirmation on order
-                    dailyActivity.addSubBehaviour(new AssembleAndSendSmartphones());
-                    dailyActivity.addSubBehaviour(new EndDay(myAgent));
+                    dailyActivity.addSubBehaviour(new ReceiveComponentsDeliveryBehaviour());
+                    dailyActivity.addSubBehaviour(new UpdateSupplierInventoriesBehaviour());
+                    dailyActivity.addSubBehaviour(new ProcessCustomerOrdersBehaviour());
+                    dailyActivity.addSubBehaviour(new OrderComponentsBehvaiour());
+                    dailyActivity.addSubBehaviour(new AssembleAndProcessCompleteOrdersBehaviour());
+                    dailyActivity.addSubBehaviour(new InformCustomersEndDayBehaviour());
+                    dailyActivity.addSubBehaviour(new InformSuppliersEndDayBehaviour());
+                    dailyActivity.addSubBehaviour(new EndDay());
 
                     myAgent.addBehaviour(dailyActivity);
                 }
@@ -133,6 +146,8 @@ public class ManufacturerAgent extends Agent {
             }
         }
     }
+
+    /* #################### Self Actions #################### */
 
     // Register the agent with the DF agent for Yellow Pages
     private class RegisterWithDFAgent extends OneShotBehaviour {
@@ -195,92 +210,33 @@ public class ManufacturerAgent extends Agent {
         }
     }
 
-    // Receive and order, decide if we want to take it, send a response
-    private class ReceiveCustomerOrders extends Behaviour {
+    /* #################### Receive Parts #################### */
 
-        int receivedOrders;
-
-        @Override
-        public void onStart() {
-            receivedOrders = 0;
-        }
-
-        @Override
-        public void action() {
-            MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.REQUEST);
-            ACLMessage msg = receive(mt);
-
-            if(msg != null) {
-                // When we find a proposal
-                ACLMessage reply;
-
-                // Get the content out of the message
-                try {
-                    ContentElement ce = getContentManager().extractContent(msg);
-                    if(ce instanceof Action) {
-                        Concept c = ((Action)ce).getAction();
-                        if(c instanceof PlaceCustomerOrder) {
-                            PlaceCustomerOrder placeCustomerOrder = (PlaceCustomerOrder) c;
-                            CustomerOrder customerOrder = placeCustomerOrder.getCustomerOrder();
-                            if (decideIfShouldTakeOrder(customerOrder)) {
-                                reply = new ACLMessage(ACLMessage.AGREE);
-                            } else {
-                                reply = new ACLMessage(ACLMessage.REFUSE);
-                            }
-                        } else {
-                            System.out.println("Its not a orderSmartphone...");
-                            reply = new ACLMessage(ACLMessage.REFUSE);
-                        }
-                    } else {
-                        System.out.println("The action is fucked up...");
-                        reply = new ACLMessage(ACLMessage.REFUSE);
-                    }
-                }
-                catch (CodecException | OntologyException e) {
-                    // If we get an error, just reject the order
-                    reply = new ACLMessage(ACLMessage.REFUSE);
-                    e.printStackTrace();
-                }
-
-
-                reply.addReceiver(msg.getSender());
-                reply.setReplyWith(msg.getReplyWith());
-                myAgent.send(reply);
-                receivedOrders++;
-            } else {
-                block();
-            }
-        }
-
-        @Override
-        public boolean done() {
-            return receivedOrders >= customers.size();
-        }
-    }
-
-    // Update the price catalogue
-    private class UpdatePriceCatalogue extends Behaviour {
-        // TODO: COULD - request the update from the suppliers. Currently they automatically send theirs.
-        int suppliersAnswered = 0;
+    // Awaiting to receive components from the supplier, or get a "no delivery"
+    private class ReceiveComponentsDeliveryBehaviour extends Behaviour {
+        int terminateAnswers = 0;
 
         @Override
         public void action() {
             MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.INFORM);
             ACLMessage msg = receive(mt);
 
-            if(msg != null) {
-                if (msg.getConversationId().equals("inventory")) {
+            if (msg != null) {
+
+                // If we get a message for parts, receive them
+                if (msg.getConversationId().equals("components delivery") && msg.getContent().equals("no delivery")) {
+                    terminateAnswers++;
+                } else if (msg.getConversationId().equals("components delivery")) {
                     try {
                         ContentElement ce = getContentManager().extractContent(msg);
-                        if(ce instanceof SendInventory) {
-                            SendInventory sendInventory = (SendInventory) ce;
-                            Inventory inventory = sendInventory.getInventory();
-                            supplierCatalogue.put(inventory.getOwner(), inventory);
-                            suppliersAnswered++;
+                        if (ce instanceof DeliverComponentsOrder) {
+                            DeliverComponentsOrder dco = (DeliverComponentsOrder)ce;
+                            // TODO: COULD - actually check if the order is ok but no time...
+                            terminateAnswers++;
                         }
                     }
                     catch (CodecException | OntologyException e) {
-                        // If we get an error
+                        // If we get an error, just reject the order
                         e.printStackTrace();
                     }
                 }
@@ -291,148 +247,146 @@ public class ManufacturerAgent extends Agent {
 
         @Override
         public boolean done() {
-            return suppliersAnswered == suppliers.size();
+            return terminateAnswers >= suppliers.size();
         }
     }
 
-    // PlaceOrder the components needed for tomorrow TODO: SHOULD - order from different suppliers
-    private class OrderComponentsBehaviour extends OneShotBehaviour {
+    /* #################### Update Inventory Records #################### */
+
+    // Request an inventory from each supplier, and wait for their answer
+    private class UpdateSupplierInventoriesBehaviour extends Behaviour {
+        int terminateAnswers = 0;
+        boolean waitingForAnswer = false;
 
         @Override
         public void action() {
+            if (waitingForAnswer) {
+                MessageTemplate mt = MessageTemplate.or(MessageTemplate.MatchPerformative(ACLMessage.AGREE),
+                                                        MessageTemplate.MatchPerformative(ACLMessage.REFUSE));
+                ACLMessage msg = receive(mt);
 
-            // Prepare message for everyone
-            ACLMessage message = new ACLMessage(ACLMessage.INFORM);
-            for (AID aid : suppliers) {
-                message.addReceiver(aid);
-            }
-            message.setContent("no orders");
-
-            // For every day
-            if (orderSchedule.containsKey(day)){
-                for (PartsToBeOrdered partsToBeOrdered : orderSchedule.values()) {
-                    // If we have items to order
-                    if (!partsToBeOrdered.getItemsToOrder().isEmpty()) {
-                        /* PlaceOrder from the supplier */
-                        // Prepare the order
-                        PlaceComponentsOrder placeComponentsOrder = new PlaceComponentsOrder();
-                        placeComponentsOrder.setDayPlaced(day);
-
-                        // Prepare the message
-                        ACLMessage proposal = new ACLMessage(ACLMessage.REQUEST);
-                        proposal.setLanguage(codec.getName());
-                        proposal.setOntology(ontology.getName());
-                        proposal.addReceiver(aidToOrderFrom);
-                        proposal.setReplyWith(orderComponents.getOrderNumber());
-
-                        // Wrapper action
-                        Action request = new Action();
-                        request.setAction(orderComponents);
-                        request.setActor(aidToOrderFrom);
-
-                        // Fill content and send
+                if (msg != null) {
+                    if (msg.getPerformative() == ACLMessage.AGREE && msg.getConversationId().equals("inventory")) {
                         try {
-                            getContentManager().fillContent(proposal, request);
-                            send(proposal);
-                            payForComponents(orderComponents);
+                            ContentElement ce = getContentManager().extractContent(msg);
+                            if (ce instanceof SendInventory) {
+                                SendInventory sendInventory = (SendInventory)ce;
+                                supplierCatalogue.put(sendInventory.getInventory().getOwner(), sendInventory.getInventory());
+                            }
                         }
                         catch (CodecException | OntologyException e) {
                             e.printStackTrace();
                         }
-                        message.removeReceiver(aidToOrderFrom);
+                        terminateAnswers++;
+                    }
+
+                    if (msg.getPerformative() == ACLMessage.REFUSE && msg.getConversationId().equals("inventory")) {
+                        // TODO: COULD - add more logic here
+                        terminateAnswers++;
+                    }
+                } else {
+                    block();
+                }
+            } else {
+                ACLMessage message = new ACLMessage(ACLMessage.REQUEST);
+                message.setContent(codec.getName());
+                message.setLanguage(ontology.getName());
+                message.setConversationId("inventory");
+                message.setContent("inventory");
+
+                for (AID aid : suppliers) {
+                    message.addReceiver(aid);
+                }
+
+                send(message);
+                waitingForAnswer = true;
+            }
+        }
+
+        @Override
+        public boolean done() {
+            return terminateAnswers >= suppliers.size();
+        }
+    }
+
+    /* #################### Deal with Customer Orders #################### */
+
+    // Accept or Refuse the customer orders
+    private class ProcessCustomerOrdersBehaviour extends Behaviour {
+        int terminateAnswers = 0;
+
+        @Override
+        public void action() {
+            MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.REQUEST);
+            ACLMessage msg = receive(mt);
+
+            if (msg != null) {
+                // Prepare a response
+                ACLMessage reply = new ACLMessage(ACLMessage.REFUSE);
+
+                // Get the content out of the message
+                try {
+                    ContentElement ce = getContentManager().extractContent(msg);
+                    if(ce instanceof Action) {
+                        Concept c = ((Action)ce).getAction();
+                        if(c instanceof PlaceCustomerOrder) {
+                            PlaceCustomerOrder placeCustomerOrder = (PlaceCustomerOrder) c;
+                            CustomerOrder customerOrder = placeCustomerOrder.getCustomerOrder();
+                            if (decideIfShouldTakeOrder(customerOrder)) {
+                                reply.setPerformative(ACLMessage.AGREE);
+                                openOrders.put(customerOrder, customerOrder.getQuantity());
+                            }
+                        }
                     }
                 }
-            }
-
-            // If we have orders for tomorrow
-            if (workSchedule.containsKey(day+1)) {
-                // Prepare the items to order
-                ArrayList<Item> items = new ArrayList<>();
-                for(Work work : workSchedule.get(day+1)){
-                    // Screen
-                    Item item = new Item();
-                    item.setComponent(work.getOrder().getSmartphone().getScreen());
-                    item.setQuantity(work.getOrder().getQuantity());
-                    items.add(item);
-
-                    // Storage
-                    item = new Item();
-                    item.setComponent(work.getOrder().getSmartphone().getStorage());
-                    item.setQuantity(work.getOrder().getQuantity());
-                    items.add(item);
-
-                    // Ram
-                    item = new Item();
-                    item.setComponent(work.getOrder().getSmartphone().getRam());
-                    item.setQuantity(work.getOrder().getQuantity());
-                    items.add(item);
-
-                    // Battery
-                    item = new Item();
-                    item.setComponent(work.getOrder().getSmartphone().getBattery());
-                    item.setQuantity(work.getOrder().getQuantity());
-                    items.add(item);
+                catch (CodecException | OntologyException e) {
+                    // If we get an error, just reject the order
+                    reply = new ACLMessage(ACLMessage.REFUSE);
+                    e.printStackTrace();
                 }
 
 
-
+                reply.addReceiver(msg.getSender());
+                reply.setConversationId(msg.getConversationId());
+                myAgent.send(reply);
+                terminateAnswers++;
+            } else {
+                block();
             }
-            /* tell the rest we dont need anything from them */
-            send(message);
-        }
-    }
-
-    //
-    private class AssembleAndSendSmartphones extends OneShotBehaviour {
-
-        @Override
-        public void action() {
-            // TODO: MUST - implement some logic
-            System.out.println("Pressume we assembled them them");
-        }
-    }
-
-    // Execute at the end of my daily activities
-    private class EndDay extends OneShotBehaviour {
-        EndDay(Agent a) {
-            super(a);
         }
 
         @Override
-        public void action() {
-            // Tell the simulation that I am done for today
-            ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
-            msg.addReceiver(simulation);
-            msg.setContent("done");
-            myAgent.send(msg);
+        public boolean done() {
+            return terminateAnswers >= customers.size();
         }
     }
-
-    /* Methods */
 
     // Need to update, currently I take only if I can do them in one of the days
     private boolean decideIfShouldTakeOrder(CustomerOrder order) {
         int dayToStartWork;
-
+        boolean works = false;
 
         /* Can I complete in between 4 and DueDate */
         if (day > 3){
             dayToStartWork = day+4;
-            if (ShouldManufacturerCompleteTheOrder(order, dayToStartWork)) return true;
+            works = EvaluateIfItsProfitable(order, dayToStartWork);
+        }
+
+        if (works) {
+            return true;
         }
 
         /* Can I complete in between 1 and DueDate */
         dayToStartWork = day+1;
-        if (ShouldManufacturerCompleteTheOrder(order, dayToStartWork)) return true;
+
+        return EvaluateIfItsProfitable(order, dayToStartWork);
 
         /* Can I complete in between 1 and after DueDate still with profit */
         // TODO: COULD - decide if I can take it and still profit
-
-        return false;
     }
 
-    // Can I do it in 4-max days? If yes, take the order
-    private boolean ShouldManufacturerCompleteTheOrder(CustomerOrder order, int dayToStartWork){
+    // Need to update the description
+    private boolean EvaluateIfItsProfitable(CustomerOrder order, int dayToStartWork){
 
         if (dayToStartWork > 100) return false;
         int toMake = order.getQuantity();
@@ -475,30 +429,29 @@ public class ManufacturerAgent extends Agent {
                 // Add to the work schedule
                 workSchedule.get(dayInUse).add(work);
 
+
+                /*
+                For each item -> check from where I am ordering, and schedule the order correctly
+                 */
+
+
                 // Add to the order schedule
-                // TODO: COULD - record what I am expecting so I can check if I actually receive them
                 for(PhoneComponent phoneComponent : orderOffer.getSource().keySet()){
+
                     // Create the orderItem
                     OrderItem orderItem = new OrderItem();
                     orderItem.setComponent(phoneComponent);
                     orderItem.setQuantity(work.getToMake());
-
+                    AID currentAID = orderOffer.getSource().get(phoneComponent);
                     // When to be scheduled
-                    int dayToBeOrdered = dayInUse - supplierCatalogue.get(orderOffer.getSource().get(phoneComponent)).getDeliverySpeed();
+                    int dayToBeOrdered = dayInUse - supplierCatalogue.get(currentAID).getDeliverySpeed();
 
                     // Get the existing object
                     orderSchedule.putIfAbsent(dayToBeOrdered, new PartsToBeOrdered());
-                    PartsToBeOrdered partsBeingOrdered = orderSchedule.get(dayToBeOrdered);
+                    orderSchedule.get(dayToBeOrdered).getItemsToOrder().putIfAbsent(currentAID, new ArrayList<>());
 
-                    // Get the existing hashmap
-                    HashMap<AID, ArrayList<OrderItem>> existingItemsToBeOrdered = partsBeingOrdered.getItemsToOrder();
-
-                    // Get the seller for the component from the offer
-                    AID toOrderFrom = orderOffer.getSource().get(phoneComponent);
-                    existingItemsToBeOrdered.get(toOrderFrom).add(orderItem);
-
-                    // Re-enter in the order schedule
-                    orderSchedule.put(dayToBeOrdered, partsBeingOrdered);
+                    // finally, add the orderItem
+                    orderSchedule.get(dayToBeOrdered).getItemsToOrder().get(currentAID).add(orderItem);
                 }
                 dayInUse++;
             }
@@ -507,12 +460,7 @@ public class ManufacturerAgent extends Agent {
         return false;
     }
 
-
-    /*
-    Get the cost to manufacture 1 smartphone if its due in dueInDays.
-    Return the cheapest price found.
-    Returns OrderOffer -> price, HashMap<componentName, AID>
-     */
+    //Get best offer to manufacture 1 smartphone if its due in dueInDays.
     private OrderOffer getPhoneCost(Smartphone smartphone, int dueInDays) {
         OrderOffer offer = new OrderOffer();
         HashMap<PhoneComponent, Integer> bestPrices = new HashMap<>();
@@ -532,7 +480,7 @@ public class ManufacturerAgent extends Agent {
                     if (component.getType().equals(inventoryItem.getComponent().getType())) {
                         // If they are of the same size i.e. 5"
                         if (component.getSize() == inventoryItem.getComponent().getSize()) {
-                            bestPrices.putIfAbsent(component, 0);
+                            bestPrices.putIfAbsent(component, Integer.MAX_VALUE);
                             // If the price of the seller is better than the currently known best, update it
                             if (bestPrices.get(component) > inventoryItem.getPrice()) {
                                 bestPrices.put(component, inventoryItem.getPrice());
@@ -553,60 +501,245 @@ public class ManufacturerAgent extends Agent {
         return offer;
     }
 
-    private void payForComponents(PlaceComponentsOrder order) {
-        PriceList tempPriceList = supplierCatalogue.get(suppliers.get(0)).getPriceList();
-        for (Item i : order.getItems()){
-            if (i.getComponent() instanceof Screen) {
-                Screen screen = (Screen) i.getComponent();
-                if (screen.getSize() == 5) {
-                    stats.profit -= tempPriceList.getScreen5Price();
-                } else {
-                    stats.profit -= tempPriceList.getScreen7Price();
-                }
-            }
+    private class OrderOffer {
+        private int price;
+        private HashMap<PhoneComponent, AID> source = new HashMap<>();
 
-            if (i.getComponent() instanceof Storage) {
-                Storage comp = (Storage) i.getComponent();
-                if (comp.getSize() == 64) {
-                    stats.profit -= tempPriceList.getStorage64Price();
-                } else {
-                    stats.profit -= tempPriceList.getStorage256Price();
-                }
-            }
+        public int getPrice() {
+            return price;
+        }
 
-            if (i.getComponent() instanceof RAM) {
-                RAM comp = (RAM) i.getComponent();
-                if (comp.getSize() == 4) {
-                    stats.profit -= tempPriceList.getRam4Price();
-                } else {
-                    stats.profit -= tempPriceList.getRam8Price();
-                }
-            }
+        public void setPrice(int price) {
+            this.price = price;
+        }
 
-            if (i.getComponent() instanceof Battery) {
-                Battery comp = (Battery) i.getComponent();
-                if (comp.getSize() == 2000) {
-                    stats.profit -= tempPriceList.getBattery2000Price();
-                } else {
-                    stats.profit -= tempPriceList.getBattery3000Price();
-                }
-            }
+        public HashMap<PhoneComponent, AID> getSource() {
+            return source;
+        }
+
+        public void setSource(HashMap<PhoneComponent, AID> source) {
+            this.source = source;
         }
     }
 
-    // Return the price of the component from the seller, if they dont sell, it is 0
-    private int doesSellerSellsPart(AID seller, PhoneComponent phoneComponent) {
-        int result = 0;
+    /* #################### Order Components #################### */
 
-        Inventory inventory = supplierCatalogue.get(seller);
-        for (InventoryItem inventoryItem : inventory.getItems()){
-            if (phoneComponent.getType().equals(inventoryItem.getComponent().getType()) && phoneComponent.getSize() == inventoryItem.getComponent().getSize()) {
-                result = inventoryItem.getPrice();
+    //
+    private class OrderComponentsBehvaiour extends Behaviour {
+        boolean waitingForConfirmation = false;
+        boolean terminate = false;
+
+        @Override
+        public void action() {
+            if (waitingForConfirmation) {
+                MessageTemplate mt = MessageTemplate.or(MessageTemplate.MatchPerformative(ACLMessage.AGREE),
+                                                        MessageTemplate.MatchPerformative(ACLMessage.REFUSE));
+                ACLMessage msg = receive(mt);
+
+                if (msg != null) {
+                    if (unconfirmedComponentsOrders.containsKey(msg.getConversationId()) &&
+                            msg.getPerformative() == ACLMessage.AGREE) {
+                        confirmedComponentsOrders.put(msg.getConversationId(), unconfirmedComponentsOrders.get(msg.getConversationId()));
+                        unconfirmedComponentsOrders.remove(msg.getConversationId());
+                        payForComponents(confirmedComponentsOrders.get(msg.getConversationId()), msg.getSender());
+                    }
+
+                    if (unconfirmedComponentsOrders.containsKey(msg.getConversationId()) &&
+                            msg.getPerformative() == ACLMessage.REFUSE) {
+                        // TODO: COULD - Need to order again from a different supplier
+                        unconfirmedComponentsOrders.remove(msg.getConversationId());
+                    }
+                } else {
+                    block();
+                }
+
+                if (unconfirmedComponentsOrders.size() <= 0) {
+                    terminate = true;
+                }
+            } else {
+                // If we have parts to order today
+                if (orderSchedule.containsKey(day)) {
+                    PartsToBeOrdered partsToBeOrdered = orderSchedule.get(day);
+
+                        // If we have items to order
+                        if (!partsToBeOrdered.getItemsToOrder().isEmpty()) {
+                            // For every supplier scheduled to order from
+                            for (AID supplier : partsToBeOrdered.getItemsToOrder().keySet()) {
+                                // Compose the component order
+                                ComponentsOrder componentsOrder = new ComponentsOrder();
+                                componentsOrder.setItems(partsToBeOrdered.getItemsToOrder().get(supplier));
+                                componentsOrder.setOrderNumber(UUID.randomUUID().toString());
+                                componentsOrder.setOrderedBy(myAgent.getAID());
+
+                                // Prepare the order
+                                PlaceComponentsOrder placeComponentsOrder = new PlaceComponentsOrder();
+                                placeComponentsOrder.setDayPlaced(day);
+                                placeComponentsOrder.setComponentsOrder(componentsOrder);
+
+                                // Prepare the message
+                                ACLMessage proposal = new ACLMessage(ACLMessage.REQUEST);
+                                proposal.setLanguage(codec.getName());
+                                proposal.setOntology(ontology.getName());
+                                proposal.addReceiver(supplier);
+                                proposal.setConversationId("components order");
+                                proposal.setReplyWith(componentsOrder.getOrderNumber());
+
+                                // Wrapper action
+                                Action request = new Action();
+                                request.setAction(placeComponentsOrder);
+                                request.setActor(supplier);
+
+                                // Fill content and send
+                                try {
+                                    getContentManager().fillContent(proposal, request);
+                                    send(proposal);
+                                    waitingForConfirmation = true;
+                                    unconfirmedComponentsOrders.put(componentsOrder.getOrderNumber(), componentsOrder);
+                                }
+                                catch (CodecException | OntologyException e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                        } else {
+                            terminate = true;
+                        }
+                } else {
+                    terminate = true;
+                }
             }
         }
 
-        return result;
+        @Override
+        public boolean done() {
+            return terminate;
+        }
     }
+
+    // Pay for the componnets
+    private void payForComponents(ComponentsOrder order, AID supplier) {
+        int bill = 0;
+        for (OrderItem orderItem : order.getItems()){
+            for (InventoryItem inventoryItem : supplierCatalogue.get(supplier).getItems()){
+                if (orderItem.getComponent().getType().equals(inventoryItem.getComponent().getType()) &&
+                        orderItem.getComponent().getSize() == inventoryItem.getComponent().getSize()) {
+                    bill += inventoryItem.getPrice();
+                }
+            }
+        }
+
+        stats.setCapital(stats.getCapital()-bill);
+    }
+
+    /* #################### Assemble and Deliver complete Orders #################### */
+
+    // Assemble, ship and get paid
+    private class AssembleAndProcessCompleteOrdersBehaviour extends Behaviour {
+        boolean waitingForConfirmation = false;
+
+        @Override
+        public void action() {
+
+            if (waitingForConfirmation) {
+                // TODO: COULD - check if customers are happy with the order
+            } else {
+                workSchedule.putIfAbsent(day, new ArrayList<>());
+                /* Assemble phones */
+                for (Work work : workSchedule.get(day)) {
+                    // TODO: COULD - check if I have the parts
+                    CustomerOrder customerOrder = work.getOrder();
+                    openOrders.put(customerOrder, openOrders.get(customerOrder) - work.getToMake());
+
+                    /* Send any complete orders */
+                    if (openOrders.get(customerOrder) <= 0) {
+                        // Order is done, so send it back
+                        // Create the message
+                        ACLMessage informationMessage = new ACLMessage(ACLMessage.INFORM);
+                        informationMessage.setLanguage(codec.getName());
+                        informationMessage.setOntology(ontology.getName());
+                        informationMessage.addReceiver(customerOrder.getOrderedBy());
+                        informationMessage.setConversationId(customerOrder.getOrderNumber());
+
+                        // Create the predicate
+                        DeliverCustomerOrder deliverCustomerOrder = new DeliverCustomerOrder();
+                        deliverCustomerOrder.setCustomerOrder(customerOrder);
+                        deliverCustomerOrder.setDayDelivered(day);
+
+                        // Fill content and send
+                        try {
+                            getContentManager().fillContent(informationMessage, deliverCustomerOrder);
+                            send(informationMessage);
+                            // Get paid and remove the order from open orders
+                            getPaid(customerOrder);
+                            openOrders.remove(customerOrder);
+                        } catch (Codec.CodecException | OntologyException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+                waitingForConfirmation = true;
+            }
+        }
+
+        @Override
+        public boolean done() {
+            return waitingForConfirmation;
+        }
+    }
+
+    //
+    private void getPaid(CustomerOrder customerOrder) {
+        stats.setCapital(stats.getCapital() + (customerOrder.getQuantity() * customerOrder.getPricePerUnit()));
+    }
+
+    /* #################### Tell everyone we dont need them anymore #################### */
+
+    // Inform all customers there are no more complete orders for today
+    private class InformCustomersEndDayBehaviour extends OneShotBehaviour {
+
+        @Override
+        public void action() {
+            ACLMessage message = new ACLMessage(ACLMessage.INFORM);
+            for (AID aid : customers) {
+                message.addReceiver(aid);
+            }
+            message.setContent("no delivery");
+            send(message);
+        }
+    }
+
+    // Inform all suppliers there are no more orders for today
+    private class InformSuppliersEndDayBehaviour extends OneShotBehaviour {
+
+        @Override
+        public void action() {
+            ACLMessage message = new ACLMessage(ACLMessage.INFORM);
+            for (AID aid : suppliers) {
+                message.addReceiver(aid);
+            }
+            message.setContent("no orders");
+            send(message);
+        }
+    }
+
+    /* #################### End Day #################### */
+
+    // Execute at the end of my daily activities
+    private class EndDay extends OneShotBehaviour {
+
+        @Override
+        public void action() {
+            // Tell the simulation that I am done for today
+            ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+            msg.addReceiver(simulation);
+            msg.setContent("done");
+
+            myAgent.send(msg);
+        }
+    }
+
+    /* #################### Data Structures #################### */
+
+    // TODO: COULD - settings class
 
     private class Work {
         private CustomerOrder order;
@@ -639,7 +772,7 @@ public class ManufacturerAgent extends Agent {
     }
 
     private class Stats {
-        private int profit = 0;
+        private int capital = 0;
         private int delayPenalties = 0;
         private int storagePenalties = 0;
         private int numOfOrders = 0;
@@ -647,16 +780,16 @@ public class ManufacturerAgent extends Agent {
         void printStats(){
             System.out.println("#####################################");
             System.out.println("Orders completed: "+ numOfOrders);
-            System.out.println("Profit made: " + profit);
+            System.out.println("Profit made: " + capital);
             System.out.println("#####################################");
         }
 
-        public int getProfit() {
-            return profit;
+        public int getCapital() {
+            return capital;
         }
 
-        public void setProfit(int profit) {
-            this.profit = profit;
+        public void setCapital(int capital) {
+            this.capital = capital;
         }
 
         public int getDelayPenalties() {
@@ -681,27 +814,6 @@ public class ManufacturerAgent extends Agent {
 
         public void setNumOfOrders(int numOfOrders) {
             this.numOfOrders = numOfOrders;
-        }
-    }
-
-    private class OrderOffer {
-        private int price;
-        private HashMap<PhoneComponent, AID> source = new HashMap<>();
-
-        public int getPrice() {
-            return price;
-        }
-
-        public void setPrice(int price) {
-            this.price = price;
-        }
-
-        public HashMap<PhoneComponent, AID> getSource() {
-            return source;
-        }
-
-        public void setSource(HashMap<PhoneComponent, AID> source) {
-            this.source = source;
         }
     }
 

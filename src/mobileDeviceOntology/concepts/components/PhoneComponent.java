@@ -27,10 +27,6 @@ public class PhoneComponent implements Concept {
     }
 
     public void setSize(int size) {
-        if (size == 2000 || size == 3000) {
-            this.size = size;
-        } else {
-            throw new IllegalArgumentException("Unrecognised battery size");
-        }
+        this.size = size;
     }
 }

@@ -91,7 +91,6 @@ public class CustomerAgent extends Agent {
                 if (msg.getContent().equals("terminate")) {
                     // message to end simulation
                     if (confirmedOrders.size() > 0) {
-                        // TODO: Check if it works
                         LOGGER.log(Level.INFO, "{0}, has incomplete orders. {1}", new Object[]{ myAgent.getLocalName(), confirmedOrders.size() } );
                     }
                     System.out.println(myAgent.getLocalName() + " decommissioned.");
@@ -107,10 +106,9 @@ public class CustomerAgent extends Agent {
 
                     // New Sequential behaviour for daily activities
                     SequentialBehaviour dailyActivity = new SequentialBehaviour();
-                    // Add sub-behaviours (executed in the same order)
                     dailyActivity.addSubBehaviour(new UpdateAgentList());
-                    dailyActivity.addSubBehaviour(new CreateAndSendOrder());
-                    dailyActivity.addSubBehaviour(new WaitForCompleteOrders());
+                    dailyActivity.addSubBehaviour(new PlaceCustomerOrderBehaviour());
+                    dailyActivity.addSubBehaviour(new WaitForCompleteOrdersBehaviour());
                     dailyActivity.addSubBehaviour(new EndDay());
 
                     myAgent.addBehaviour(dailyActivity);
@@ -121,6 +119,8 @@ public class CustomerAgent extends Agent {
             }
         }
     }
+
+    /* Self Actions */
 
     // Register the agent with the DF agent for Yellow Pages
     private class RegisterWithDFAgent extends OneShotBehaviour {
@@ -170,8 +170,10 @@ public class CustomerAgent extends Agent {
         }
     }
 
-    // Creates and sends an order to all known manufacturers
-    private class CreateAndSendOrder extends Behaviour {
+    /* Place Order */
+
+    // Creates and sends an order to all known manufacturers, and listen for respond to it
+    private class PlaceCustomerOrderBehaviour extends Behaviour {
 
         boolean waitingForConfirmation = false;
         boolean terminate = false;
@@ -179,16 +181,21 @@ public class CustomerAgent extends Agent {
         @Override
         public void action() {
 
-            if (!waitingForConfirmation) {
+            if (waitingForConfirmation) {
                 MessageTemplate mt = MessageTemplate.or(MessageTemplate.MatchPerformative(ACLMessage.AGREE),
                                                         MessageTemplate.MatchPerformative(ACLMessage.REFUSE));
                 ACLMessage msg = receive(mt);
 
                 if (msg != null) {
-                    if (msg.getPerformative() == ACLMessage.AGREE) {
-                        // Remove order from the openOrders
-                        confirmedOrders.putIfAbsent(openOrder.getOrderNumber(), openOrder);
+                    if (msg.getPerformative() == ACLMessage.AGREE && msg.getConversationId().equals(openOrder.getOrderNumber())) {
+                        confirmedOrders.put(openOrder.getOrderNumber(), openOrder);
+                        openOrder = null;
                     }
+
+                    if (msg.getPerformative() == ACLMessage.REFUSE && msg.getConversationId().equals(openOrder.getOrderNumber())) {
+                        openOrder = null;
+                    }
+
                     terminate = true;
                 } else {
                     block();
@@ -210,10 +217,10 @@ public class CustomerAgent extends Agent {
                 proposal.setLanguage(codec.getName());
                 proposal.setOntology(ontology.getName());
                 proposal.addReceiver(manufacturer);
-                proposal.setReplyWith(order.getOrderNumber());
+                proposal.setConversationId(order.getOrderNumber());
 
                 Action request = new Action();
-                request.setAction(order);
+                request.setAction(placeCustomerOrder);
                 request.setActor(manufacturer);
 
                 // Fill content and send
@@ -232,94 +239,6 @@ public class CustomerAgent extends Agent {
         @Override
         public boolean done() {
             return terminate;
-        }
-
-
-    }
-
-    // Listen for an answer to our proposal
-    private class WaitForCompleteOrders extends Behaviour {
-
-        boolean responseReceived = false;
-
-        @Override
-        public void action() {
-            MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.INFORM);
-            ACLMessage msg = myAgent.receive(mt);
-
-            if (msg != null) {
-                // Logic what to do, but we dont need any
-                if (msg.getContent().equals("no delivery")) {
-                    responseReceived = true;
-                } else {
-                    try {
-                        ContentElement ce = getContentManager().extractContent(msg);
-                        if (ce instanceof DeliverCustomerOrder) {
-                            DeliverCustomerOrder dco = (DeliverCustomerOrder)ce;
-                            // TODO: COULD - actually check if the order is ok but no time...
-                            confirmedOrders.remove(dco.getCustomerOrder().getOrderNumber());
-                            responseReceived = true;
-                        }
-                    }
-                    catch (CodecException | OntologyException e) {
-                        // If we get an error, just reject the order
-                        e.printStackTrace();
-                    }
-                }
-            }
-        }
-
-        @Override
-        public boolean done() {
-            return responseReceived;
-        }
-    }
-
-    // Execute at the end of my daily activities
-    private class EndDay extends OneShotBehaviour {
-
-        @Override
-        public void action() {
-            // Tell the simulation that I am done for today
-            ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
-            msg.addReceiver(simulation);
-            msg.setContent("done");
-            myAgent.send(msg);
-        }
-    }
-
-    /* Methods */
-
-    // Creates a PlaceOrderSmartphones based on the provided rules
-    private CustomerOrder generateCustomerOrder(int day, AID agentAID, Smartphone smartphone) {
-
-        Random random = new Random();
-
-        try {
-            // Quantity
-            int quantity = (int) Math.floor(1+50*random.nextFloat());
-            // Due date
-            int dueDate = day + (int) Math.floor(1 + 10*random.nextFloat());
-            // Price
-            int pricePerUnit = (int) Math.floor(100 + 500*random.nextFloat());
-            // Penalty
-            int delayPenaltyPerDay = quantity * (int) Math.floor(1 + 50*random.nextFloat());
-
-            CustomerOrder customerOrder = new CustomerOrder();
-            // From order
-            customerOrder.setDelayPenaltyPerDay(delayPenaltyPerDay);
-            customerOrder.setDueDate(dueDate);
-            customerOrder.setPricePerUnit(pricePerUnit);
-            customerOrder.setQuantity(quantity);
-            customerOrder.setSmartphone(smartphone);
-            customerOrder.setOrderedBy(agentAID);
-            customerOrder.setOrderNumber(UUID.randomUUID().toString());
-
-            return customerOrder;
-        }
-        catch (NumberFormatException e) {
-            e.printStackTrace();
-            return null;
         }
     }
 
@@ -369,6 +288,101 @@ public class CustomerAgent extends Agent {
         components.add(ram);
         components.add(battery);
 
+        smartphone.setComponents(components);
+
         return smartphone;
     }
+
+    // Creates a PlaceOrderSmartphones based on the provided rules
+    private CustomerOrder generateCustomerOrder(int day, AID agentAID, Smartphone smartphone) {
+
+        Random random = new Random();
+
+        try {
+            // Quantity
+            int quantity = (int) Math.floor(1+50*random.nextFloat());
+            // Due date
+            int dueDate = day + (int) Math.floor(1 + 10*random.nextFloat());
+            // Price
+            int pricePerUnit = (int) Math.floor(100 + 500*random.nextFloat());
+            // Penalty
+            int delayPenaltyPerDay = quantity * (int) Math.floor(1 + 50*random.nextFloat());
+
+            CustomerOrder customerOrder = new CustomerOrder();
+            // From order
+            customerOrder.setDelayPenaltyPerDay(delayPenaltyPerDay);
+            customerOrder.setDueDate(dueDate);
+            customerOrder.setPricePerUnit(pricePerUnit);
+            customerOrder.setQuantity(quantity);
+            customerOrder.setSmartphone(smartphone);
+            customerOrder.setOrderedBy(agentAID);
+            customerOrder.setOrderNumber(UUID.randomUUID().toString());
+
+            return customerOrder;
+        }
+        catch (NumberFormatException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /* Receive Orders */
+
+    // Listen for an answer to our proposal
+    private class WaitForCompleteOrdersBehaviour extends Behaviour {
+        boolean terminate = false;
+
+        @Override
+        public void action() {
+            MessageTemplate mt = MessageTemplate.MatchPerformative(ACLMessage.INFORM);
+            ACLMessage msg = receive(mt);
+
+            if (msg != null) {
+
+                // If there are no more deliveries
+                if (msg.getSender().equals(manufacturer) && msg.getContent().equals("no delivery")) {
+                    terminate = true;
+                } else if (msg.getSender().equals(manufacturer)){
+                    try {
+                        ContentElement ce = getContentManager().extractContent(msg);
+                        if (ce instanceof DeliverCustomerOrder) {
+                            DeliverCustomerOrder dco = (DeliverCustomerOrder)ce;
+                            // TODO: COULD - actually check if the order is ok but no time...
+                            confirmedOrders.remove(dco.getCustomerOrder().getOrderNumber());
+                            // TODO: SHOULD - Pay
+                        }
+                    }
+                    catch (CodecException | OntologyException e) {
+                        // If we get an error, just reject the order
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+
+        @Override
+        public boolean done() {
+            return terminate;
+        }
+    }
+
+    /* End of the day */
+
+    // Execute at the end of my daily activities
+    private class EndDay extends OneShotBehaviour {
+
+        @Override
+        public void action() {
+            // Tell the simulation that I am done for today
+            ACLMessage msg = new ACLMessage(ACLMessage.INFORM);
+            msg.addReceiver(simulation);
+            msg.setContent("done");
+            myAgent.send(msg);
+        }
+    }
+
+
+
+
+
 }

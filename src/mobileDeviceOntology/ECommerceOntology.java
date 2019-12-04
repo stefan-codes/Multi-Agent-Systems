@@ -15,9 +15,17 @@ public class ECommerceOntology extends BeanOntology {
     private ECommerceOntology(String name) {
         super(name);
         try {
+            // Actions
             add("mobileDeviceOntology.agentActions");
+            add("mobileDeviceOntology.agentActions.orders");
+            // Concepts
             add("mobileDeviceOntology.concepts");
+            add("mobileDeviceOntology.concepts.components");
+            add("mobileDeviceOntology.concepts.items");
+            add("mobileDeviceOntology.concepts.orders");
+            // Predicates
             add("mobileDeviceOntology.predicates");
+            add("mobileDeviceOntology.predicates.orders");
         }
         catch (BeanOntologyException e) {
             e.printStackTrace();
