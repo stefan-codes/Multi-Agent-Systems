@@ -12,7 +12,7 @@ public class Smartphone implements Concept {
 
     /* Getters */
 
-    @AggregateSlot (cardMin = 1)
+    @AggregateSlot (cardMin = 4)
     public ArrayList<PhoneComponent> getComponents() {
         return components;
     }

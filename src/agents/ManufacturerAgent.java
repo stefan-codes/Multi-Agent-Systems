@@ -68,7 +68,7 @@ public class ManufacturerAgent extends Agent {
 
     // Properties for the strategy
     private int workCapacity = 50;
-    private int minimumProfitPerPhone = 20;
+    private int minimumProfitPerPhone = 40;
 
     // Called when the agent is being created
     @Override
@@ -779,7 +779,7 @@ public class ManufacturerAgent extends Agent {
 
         void printStats(){
             System.out.println("#####################################");
-            System.out.println("Orders completed: "+ numOfOrders);
+            //System.out.println("Orders completed: "+ numOfOrders);
             System.out.println("Profit made: " + capital);
             System.out.println("#####################################");
         }

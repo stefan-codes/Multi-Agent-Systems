@@ -23,14 +23,18 @@ import jade.lang.acl.MessageTemplate;
 import mobileDeviceOntology.ECommerceOntology;
 import mobileDeviceOntology.agentActions.orders.PlaceComponentsOrder;
 import mobileDeviceOntology.concepts.Inventory;
+import mobileDeviceOntology.concepts.Smartphone;
+import mobileDeviceOntology.concepts.components.PhoneComponent;
 import mobileDeviceOntology.concepts.items.InventoryItem;
 import mobileDeviceOntology.concepts.items.OrderItem;
 import mobileDeviceOntology.concepts.orders.ComponentsOrder;
+import mobileDeviceOntology.concepts.orders.CustomerOrder;
 import mobileDeviceOntology.predicates.SendInventory;
 import mobileDeviceOntology.predicates.orders.DeliverComponentsOrder;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.UUID;
 
 public class SupplierAgent extends Agent {
 
@@ -216,6 +220,7 @@ public class SupplierAgent extends Agent {
                     }
                 }
 
+
                 toDo.get(day).clear();
             } else {
                 message.setContent("no delivery");
@@ -344,6 +349,8 @@ public class SupplierAgent extends Agent {
                 e.printStackTrace();
             }
         }
+
+
     }
 
     // Execute at the end of my daily activities
